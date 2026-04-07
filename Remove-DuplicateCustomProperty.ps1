@@ -21,6 +21,10 @@
     specify a different (or multiple) property name(s), or use -All to
     de-duplicate every property that has duplicates.
 
+    Use -CheckOnly to scan for duplicates and report them without modifying
+    the document. For example, use -PropertyName "Variables" -CheckOnly to
+    check only that custom property.
+
 .PARAMETER SiteUrl
     Full URL of the SharePoint site.  Required for SharePoint mode.
 
@@ -47,6 +51,10 @@
 .PARAMETER All
     De-duplicate ALL properties that have more than one entry (ignores -PropertyName).
 
+.PARAMETER CheckOnly
+    Scan for duplicate custom properties and report them without changing the
+    file or uploading any updates.
+
 .PARAMETER FileExtensionFilter
     Extensions to include when using -LibraryName. Default: "docx".
 
@@ -71,6 +79,10 @@
 .EXAMPLE
     # Remove duplicate ACTQMSApprovedDate from a local file (in-place)
     .\Remove-DuplicateCustomProperty.ps1 -LocalPath "C:\Docs\Report.docx" -Overwrite
+
+.EXAMPLE
+    # Check whether the custom property "Variables" has duplicate entries
+    .\Remove-DuplicateCustomProperty.ps1 -LocalPath "C:\Docs\Report.docx" -PropertyName "Variables" -CheckOnly
 #>
 
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = "SPSingleFile")]
@@ -103,6 +115,8 @@ param(
     [string[]]$PropertyName = @("ACTQMSApprovedDate"),
 
     [switch]$All,
+
+    [switch]$CheckOnly,
 
     [Parameter(ParameterSetName = "SPSingleFile")]
     [Parameter(ParameterSetName = "SPLibrary")]
@@ -176,9 +190,10 @@ function Remove-DuplicatePropertiesFromBytes {
 
         Returns a hashtable:
           @{
-              Bytes      = [byte[]]   (original bytes when unchanged)
-              Changed    = [bool]
-              Removed    = [string[]]   # list of "name (pid=N, type=T)"
+              Bytes          = [byte[]]   (original bytes when unchanged)
+              Changed        = [bool]
+              Removed        = [string[]]   # list of "name (pid=N, type=T)"
+              DuplicateNames = [string[]]
           }
     #>
     param(
@@ -187,7 +202,7 @@ function Remove-DuplicatePropertiesFromBytes {
         [bool]$DedupeAll
     )
 
-    $noChange = @{ Bytes = $DocxBytes; Changed = $false; Removed = @() }
+    $noChange = @{ Bytes = $DocxBytes; Changed = $false; Removed = @(); DuplicateNames = @() }
 
     $scanMs = New-Object System.IO.MemoryStream(,$DocxBytes)
     try {
@@ -329,9 +344,10 @@ function Remove-DuplicatePropertiesFromBytes {
         finally { $zip.Dispose() }
 
         return @{
-            Bytes   = $outputMs.ToArray()
-            Changed = $true
-            Removed = @($removedList)
+            Bytes          = $outputMs.ToArray()
+            Changed        = $true
+            Removed        = @($removedList)
+            DuplicateNames = @($duplicateNames)
         }
     }
     finally {
@@ -478,6 +494,7 @@ function Process-SingleSPFile {
         [string]$WebUrl,
         [string[]]$TargetNames,
         [bool]$DedupeAll,
+        [switch]$CheckOnly,
         [switch]$VersioningDisabled
     )
 
@@ -485,7 +502,7 @@ function Process-SingleSPFile {
 
     if ($FileRef -notmatch '(?i)\.docx$') {
         Write-Status "Not a .docx file — skipping." "WARN"
-        return [pscustomobject]@{ FileRef = $FileRef; Status = "Skipped-NotDocx"; Removed = @() }
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "Skipped-NotDocx"; Removed = @(); DuplicateNames = @() }
     }
 
     Write-Status "Processing: $FileRef" "INFO"
@@ -497,7 +514,7 @@ function Process-SingleSPFile {
 
     if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
         Write-Status "  Not a valid ZIP — skipping." "WARN"
-        return [pscustomobject]@{ FileRef = $FileRef; Status = "Skipped-NotZip"; Removed = @() }
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "Skipped-NotZip"; Removed = @(); DuplicateNames = @() }
     }
 
     $result = Remove-DuplicatePropertiesFromBytes `
@@ -507,22 +524,27 @@ function Process-SingleSPFile {
 
     if (-not $result.Changed) {
         Write-Host "    No duplicates — no changes needed."
-        return [pscustomobject]@{ FileRef = $FileRef; Status = "Clean"; Removed = @() }
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "Clean"; Removed = @(); DuplicateNames = @() }
+    }
+
+    if ($CheckOnly) {
+        Write-Host "    Duplicates  : $($result.DuplicateNames -join ', ')" -ForegroundColor Yellow
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "HasDuplicates"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
     }
 
     if (-not $PSCmdlet.ShouldProcess($FileRef, "Remove duplicate custom properties")) {
-        return [pscustomobject]@{ FileRef = $FileRef; Status = "WhatIf"; Removed = $result.Removed }
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "WhatIf"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
     }
 
     $ok = Upload-DocxBytesBack -Bytes $result.Bytes -FileRef $FileRef -WebUrl $WebUrl -VersioningDisabled:$VersioningDisabled
 
     if ($ok) {
         Write-Status "    Done — $($result.Removed.Count) duplicate(s) removed." "SUCCESS"
-        return [pscustomobject]@{ FileRef = $FileRef; Status = "Fixed"; Removed = $result.Removed }
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "Fixed"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
     }
     else {
         Write-Status "    Upload succeeded but checkin failed — file is checked out!" "ERROR"
-        return [pscustomobject]@{ FileRef = $FileRef; Status = "Error: CheckinFailed"; Removed = $result.Removed }
+        return [pscustomobject]@{ FileRef = $FileRef; Status = "Error: CheckinFailed"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
     }
 }
 
@@ -531,11 +553,12 @@ function Process-LocalFile {
         [string]$FullPath,
         [string[]]$TargetNames,
         [bool]$DedupeAll,
+        [switch]$CheckOnly,
         [switch]$Overwrite
     )
 
     if ($FullPath -notmatch '(?i)\.docx$') {
-        return [pscustomobject]@{ FileRef = $FullPath; Status = "Skipped-NotDocx"; Removed = @() }
+        return [pscustomobject]@{ FileRef = $FullPath; Status = "Skipped-NotDocx"; Removed = @(); DuplicateNames = @() }
     }
 
     $bytes = [System.IO.File]::ReadAllBytes($FullPath)
@@ -543,7 +566,7 @@ function Process-LocalFile {
 
     if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
         Write-Status "  Not a valid ZIP — skipping." "WARN"
-        return [pscustomobject]@{ FileRef = $FullPath; Status = "Skipped-NotZip"; Removed = @() }
+        return [pscustomobject]@{ FileRef = $FullPath; Status = "Skipped-NotZip"; Removed = @(); DuplicateNames = @() }
     }
 
     $result = Remove-DuplicatePropertiesFromBytes `
@@ -553,7 +576,12 @@ function Process-LocalFile {
 
     if (-not $result.Changed) {
         Write-Host "    No duplicates — no changes needed."
-        return [pscustomobject]@{ FileRef = $FullPath; Status = "Clean"; Removed = @() }
+        return [pscustomobject]@{ FileRef = $FullPath; Status = "Clean"; Removed = @(); DuplicateNames = @() }
+    }
+
+    if ($CheckOnly) {
+        Write-Host "    Duplicates  : $($result.DuplicateNames -join ', ')" -ForegroundColor Yellow
+        return [pscustomobject]@{ FileRef = $FullPath; Status = "HasDuplicates"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
     }
 
     if ($Overwrite) {
@@ -566,13 +594,13 @@ function Process-LocalFile {
     }
 
     if (-not $PSCmdlet.ShouldProcess($outPath, "Remove duplicate custom properties")) {
-        return [pscustomobject]@{ FileRef = $FullPath; Status = "WhatIf"; Removed = $result.Removed }
+        return [pscustomobject]@{ FileRef = $FullPath; Status = "WhatIf"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
     }
 
     [System.IO.File]::WriteAllBytes($outPath, $result.Bytes)
     Write-Host "    Saved: $outPath" -ForegroundColor Green
 
-    return [pscustomobject]@{ FileRef = $FullPath; Status = "Fixed"; Removed = $result.Removed }
+    return [pscustomobject]@{ FileRef = $FullPath; Status = "Fixed"; Removed = $result.Removed; DuplicateNames = $result.DuplicateNames }
 }
 
 
@@ -583,14 +611,17 @@ try {
     $dedupeAll  = [bool]$All
 
     if ($dedupeAll) {
-        Write-Status "Mode: de-duplicate ALL properties with duplicates" "INFO"
+        $modeLabel = if ($CheckOnly) { "check ALL properties with duplicates" } else { "de-duplicate ALL properties with duplicates" }
+        Write-Status "Mode: $modeLabel" "INFO"
     }
     else {
-        Write-Status "Target properties: $($targetList -join ', ')" "INFO"
+        $modeLabel = if ($CheckOnly) { "Check target properties" } else { "Target properties" }
+        Write-Status "${modeLabel}: $($targetList -join ', ')" "INFO"
     }
 
     if ($PSCmdlet.ParameterSetName -eq "Local") {
-        Write-SectionHeader "Local File — Remove Duplicate Custom Properties"
+        $localTitle = if ($CheckOnly) { "Local File — Check Duplicate Custom Properties" } else { "Local File — Remove Duplicate Custom Properties" }
+        Write-SectionHeader $localTitle
 
         if (Test-Path -Path $LocalPath -PathType Container) {
             $files = @(Get-ChildItem -Path $LocalPath -Filter "*.docx" -File -Recurse |
@@ -602,7 +633,7 @@ try {
                 $i++
                 Write-Progress -Activity "De-duplicating" -Status $f.Name -PercentComplete (100 * $i / [Math]::Max($files.Count, 1))
                 try {
-                    $localResult = Process-LocalFile -FullPath $f.FullName -TargetNames $targetList -DedupeAll $dedupeAll -Overwrite:$Overwrite
+                    $localResult = Process-LocalFile -FullPath $f.FullName -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly -Overwrite:$Overwrite
                     $results.Add($localResult)
                 }
                 catch {
@@ -611,6 +642,7 @@ try {
                         FileRef = $f.FullName
                         Status  = "Error: $($_.Exception.Message)"
                         Removed = @()
+                        DuplicateNames = @()
                     })
                 }
             }
@@ -620,7 +652,7 @@ try {
         else {
             $resolvedPath = (Resolve-Path $LocalPath).Path
             try {
-                $localSingleResult = Process-LocalFile -FullPath $resolvedPath -TargetNames $targetList -DedupeAll $dedupeAll -Overwrite:$Overwrite
+                $localSingleResult = Process-LocalFile -FullPath $resolvedPath -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly -Overwrite:$Overwrite
                 $results.Add($localSingleResult)
             }
             catch {
@@ -629,6 +661,7 @@ try {
                     FileRef = $resolvedPath
                     Status  = "Error: $($_.Exception.Message)"
                     Removed = @()
+                    DuplicateNames = @()
                 })
             }
         }
@@ -648,7 +681,8 @@ try {
         $cachedWebUrl = (Get-PnPWeb).ServerRelativeUrl.TrimEnd("/")
 
         if ($PSCmdlet.ParameterSetName -eq "SPSingleFile") {
-            Write-SectionHeader "Single File — Remove Duplicate Custom Properties"
+            $singleTitle = if ($CheckOnly) { "Single File — Check Duplicate Custom Properties" } else { "Single File — Remove Duplicate Custom Properties" }
+            Write-SectionHeader $singleTitle
 
             $decodedRef  = [System.Uri]::UnescapeDataString($FileServerRelativeUrl)
             $skipThis = $false
@@ -658,7 +692,7 @@ try {
                 $docStatus = [string]$spItem.FieldValues["ACTQMSDocumentStatus"]
                 if ($docStatus -eq "Archived") {
                     Write-Status "Skipping (Archived): $decodedRef" "WARN"
-                    $results.Add([pscustomobject]@{ FileRef = $decodedRef; Status = "Skipped-Archived"; Removed = @() })
+                    $results.Add([pscustomobject]@{ FileRef = $decodedRef; Status = "Skipped-Archived"; Removed = @(); DuplicateNames = @() })
                     $skipThis = $true
                 }
             }
@@ -672,7 +706,7 @@ try {
                 $ver = [string]$spItem.FieldValues["_UIVersionString"]
                 $isMajor = ($ver -match '^\d+\.0$' -and $ver -ne '0.0')
 
-                if ($isMajor) {
+                if ($isMajor -and -not $CheckOnly) {
                     # Infer library from first path segment after web URL
                     $relPath = $decodedRef
                     if ($cachedWebUrl -ne "" -and $relPath.StartsWith($cachedWebUrl, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -705,7 +739,7 @@ try {
 
                         $singleResult = Process-SingleSPFile -FileRef $decodedRef `
                             -WebUrl $cachedWebUrl `
-                            -TargetNames $targetList -DedupeAll $dedupeAll `
+                            -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly `
                             -VersioningDisabled
                         $results.Add($singleResult)
                     }
@@ -732,13 +766,14 @@ try {
                 else {
                     $singleResult = Process-SingleSPFile -FileRef $decodedRef `
                         -WebUrl $cachedWebUrl `
-                        -TargetNames $targetList -DedupeAll $dedupeAll
+                        -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly
                     $results.Add($singleResult)
                 }
             }
         }
         else {
-            Write-SectionHeader "Library Sweep — $LibraryName"
+            $libraryTitle = if ($CheckOnly) { "Library Sweep — Check Duplicates — $LibraryName" } else { "Library Sweep — $LibraryName" }
+            Write-SectionHeader $libraryTitle
 
             $camlQuery = "<View Scope='RecursiveAll'><Query><Where>" +
                 "<Eq><FieldRef Name='File_x0020_Type'/><Value Type='Text'>$FileExtensionFilter</Value></Eq>" +
@@ -762,7 +797,7 @@ try {
                     $docStatus = [string]$item.FieldValues["ACTQMSDocumentStatus"]
                     if ($docStatus -eq "Archived") {
                         Write-Status "Skipping (Archived): $fileRef" "WARN"
-                        $results.Add([pscustomobject]@{ FileRef = $fileRef; Status = "Skipped-Archived"; Removed = @() })
+                        $results.Add([pscustomobject]@{ FileRef = $fileRef; Status = "Skipped-Archived"; Removed = @(); DuplicateNames = @() })
                         continue
                     }
                 }
@@ -781,35 +816,18 @@ try {
             #          then re-enable. No checkout/checkin needed.
             # ---------------------------------------------------------------
             if ($majorItems.Count -gt 0) {
-                Write-SectionHeader "Pass 1 — Major versions (versioning disabled)"
-
-                $list = Get-PnPList -Identity $LibraryName -ErrorAction Stop
-                $ctx2 = Get-PnPContext
-                $ctx2.Load($list)
-                $null = Invoke-PnPQuery
-                $savedVersioning      = $list.EnableVersioning
-                $savedMinorVersions   = $list.EnableMinorVersions
-                $savedForceCheckout   = $list.ForceCheckout
-                $savedDraftVisibility = $list.DraftVersionVisibility
-
-                Write-Status "Disabling versioning on '$LibraryName'" "INFO"
-                try {
-                    Set-PnPList -Identity $LibraryName -EnableVersioning $false -ErrorAction Stop
-                    if ($savedForceCheckout) {
-                        $list.ForceCheckout = $false; $list.Update(); $null = Invoke-PnPQuery
-                    }
-                    Write-Status "Versioning disabled — processing $($majorItems.Count) major version file(s)" "INFO"
+                if ($CheckOnly) {
+                    Write-SectionHeader "Pass 1 — Major versions (scan only)"
 
                     foreach ($item in $majorItems) {
                         $processed++
                         $fileRef = $item.FieldValues["FileRef"]
-                        Write-Progress -Activity "De-duplicating (major)" -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
+                        Write-Progress -Activity "Checking duplicates (major)" -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
 
                         try {
                             $libResult = Process-SingleSPFile -FileRef $fileRef `
                                 -WebUrl $cachedWebUrl `
-                                -TargetNames $targetList -DedupeAll $dedupeAll `
-                                -VersioningDisabled
+                                -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly
                             $results.Add($libResult)
                         }
                         catch {
@@ -819,28 +837,74 @@ try {
                                 FileRef = $fileRef
                                 Status  = "Error: $errMsg"
                                 Removed = @()
+                                DuplicateNames = @()
                             })
                         }
                     }
                 }
-                finally {
-                    # Always restore original settings
+                else {
+                    Write-SectionHeader "Pass 1 — Major versions (versioning disabled)"
+
+                    $list = Get-PnPList -Identity $LibraryName -ErrorAction Stop
+                    $ctx2 = Get-PnPContext
+                    $ctx2.Load($list)
+                    $null = Invoke-PnPQuery
+                    $savedVersioning      = $list.EnableVersioning
+                    $savedMinorVersions   = $list.EnableMinorVersions
+                    $savedForceCheckout   = $list.ForceCheckout
+                    $savedDraftVisibility = $list.DraftVersionVisibility
+
+                    Write-Status "Disabling versioning on '$LibraryName'" "INFO"
                     try {
-                        Set-PnPList -Identity $LibraryName `
-                            -EnableVersioning $savedVersioning `
-                            -EnableMinorVersions $savedMinorVersions `
-                            -ErrorAction Stop
-                        $list2 = Get-PnPList -Identity $LibraryName -ErrorAction Stop
+                        Set-PnPList -Identity $LibraryName -EnableVersioning $false -ErrorAction Stop
                         if ($savedForceCheckout) {
-                            $list2.ForceCheckout = $true
+                            $list.ForceCheckout = $false; $list.Update(); $null = Invoke-PnPQuery
                         }
-                        $list2.DraftVersionVisibility = $savedDraftVisibility
-                        $list2.Update()
-                        $null = Invoke-PnPQuery
-                        Write-Status "Restored versioning settings on '$LibraryName'" "SUCCESS"
+                        Write-Status "Versioning disabled — processing $($majorItems.Count) major version file(s)" "INFO"
+
+                        foreach ($item in $majorItems) {
+                            $processed++
+                            $fileRef = $item.FieldValues["FileRef"]
+                            Write-Progress -Activity "De-duplicating (major)" -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
+
+                            try {
+                                $libResult = Process-SingleSPFile -FileRef $fileRef `
+                                    -WebUrl $cachedWebUrl `
+                                    -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly `
+                                    -VersioningDisabled
+                                $results.Add($libResult)
+                            }
+                            catch {
+                                $errMsg = $_.Exception.Message
+                                Write-Status "ERROR on ${fileRef}: $errMsg" "ERROR"
+                                $results.Add([pscustomobject]@{
+                                    FileRef = $fileRef
+                                    Status  = "Error: $errMsg"
+                                    Removed = @()
+                                    DuplicateNames = @()
+                                })
+                            }
+                        }
                     }
-                    catch {
-                        Write-Status "WARNING: Failed to restore versioning settings: $($_.Exception.Message)" "ERROR"
+                    finally {
+                        # Always restore original settings
+                        try {
+                            Set-PnPList -Identity $LibraryName `
+                                -EnableVersioning $savedVersioning `
+                                -EnableMinorVersions $savedMinorVersions `
+                                -ErrorAction Stop
+                            $list2 = Get-PnPList -Identity $LibraryName -ErrorAction Stop
+                            if ($savedForceCheckout) {
+                                $list2.ForceCheckout = $true
+                            }
+                            $list2.DraftVersionVisibility = $savedDraftVisibility
+                            $list2.Update()
+                            $null = Invoke-PnPQuery
+                            Write-Status "Restored versioning settings on '$LibraryName'" "SUCCESS"
+                        }
+                        catch {
+                            Write-Status "WARNING: Failed to restore versioning settings: $($_.Exception.Message)" "ERROR"
+                        }
                     }
                 }
             }
@@ -859,7 +923,7 @@ try {
                     try {
                         $libResult = Process-SingleSPFile -FileRef $fileRef `
                             -WebUrl $cachedWebUrl `
-                            -TargetNames $targetList -DedupeAll $dedupeAll
+                            -TargetNames $targetList -DedupeAll $dedupeAll -CheckOnly:$CheckOnly
                         $results.Add($libResult)
                     }
                     catch {
@@ -869,6 +933,7 @@ try {
                             FileRef = $fileRef
                             Status  = "Error: $errMsg"
                             Removed = @()
+                            DuplicateNames = @()
                         })
                     }
                 }
@@ -881,6 +946,7 @@ try {
     Write-SectionHeader "Summary"
 
     $cntFixed    = @($results | Where-Object { $_.Status -eq "Fixed" }).Count
+    $cntHasDupes = @($results | Where-Object { $_.Status -eq "HasDuplicates" }).Count
     $cntClean    = @($results | Where-Object { $_.Status -eq "Clean" }).Count
     $cntArchived = @($results | Where-Object { $_.Status -eq "Skipped-Archived" }).Count
     $cntSkipped  = @($results | Where-Object { $_.Status -like "Skipped*" -and $_.Status -ne "Skipped-Archived" }).Count
@@ -892,14 +958,19 @@ try {
         if ($r.Removed) { $totalRemoved += $r.Removed.Count }
     }
 
-    Write-Host "  Fixed         : $cntFixed  ($totalRemoved duplicate(s) removed)"
+    if ($CheckOnly) {
+        Write-Host "  HasDuplicates : $cntHasDupes  ($totalRemoved duplicate instance(s) detected)"
+    }
+    else {
+        Write-Host "  Fixed         : $cntFixed  ($totalRemoved duplicate(s) removed)"
+    }
     Write-Host "  Clean         : $cntClean  (no duplicates)"
     Write-Host "  Archived      : $cntArchived  (skipped)"
     Write-Host "  Skipped       : $cntSkipped"
     Write-Host "  WhatIf        : $cntWhatIf"
     Write-Host "  Errors        : $cntErrors"
 
-    if ($cntFixed -gt 0) {
+    if (-not $CheckOnly -and $cntFixed -gt 0) {
         Write-Host ""
         Write-Status "Files with duplicates removed:" "SUCCESS"
         foreach ($r in $results) {
@@ -907,6 +978,19 @@ try {
                 Write-Host "  $($r.FileRef)" -ForegroundColor Green
                 foreach ($rem in $r.Removed) {
                     Write-Host "    - $rem" -ForegroundColor DarkGreen
+                }
+            }
+        }
+    }
+
+    if ($CheckOnly -and $cntHasDupes -gt 0) {
+        Write-Host ""
+        Write-Status "Files with duplicate properties detected:" "WARN"
+        foreach ($r in $results) {
+            if ($r.Status -eq "HasDuplicates") {
+                Write-Host "  $($r.FileRef)" -ForegroundColor Yellow
+                foreach ($dupName in $r.DuplicateNames | Select-Object -Unique) {
+                    Write-Host "    - $dupName" -ForegroundColor DarkYellow
                 }
             }
         }

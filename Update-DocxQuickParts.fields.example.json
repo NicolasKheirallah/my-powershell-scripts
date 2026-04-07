@@ -1,0 +1,40 @@
+{
+  "default": [
+    "ACTDocumentLanguage",
+    "ACTLocation",
+    "ACTOrganisation",
+    "ACTQMSEndToEndProcess",
+    "ACTQMSSteeringDocumentType",
+    "ACTTypeOfProjectDocument",
+    "ACTQMSApprovedBy",
+    "ACTQMSFunction",
+    "ACTQMSManagementSystem",
+    "ACTQMSPeriodOfValidity",
+    "ACTQMSDocumentStatus",
+    "ACTQMSApprovedDate",
+    "ACTQMSUnitCodeLocal",
+    "ACTQMSArchivedBy",
+    "ACTQMSExpiryDate",
+    "ACTQMSDocumentOwner",
+    "MigratedChapter",
+    "_dlc_DocId",
+    "_UIVersionString",
+    "Title"
+  ],
+  "QMSCore": {
+    "Fields": [
+      "Title",
+      "ACTQMSApprovedBy",
+      "ACTQMSApprovedDate",
+      "ACTQMSDocumentOwner",
+      "ACTQMSDocumentStatus",
+      "_UIVersionString"
+    ]
+  },
+  "Minimal": {
+    "Fields": [
+      "Title",
+      "ACTQMSApprovedDate"
+    ]
+  }
+}
