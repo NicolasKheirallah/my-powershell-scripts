@@ -21,7 +21,26 @@
         8. Uploads back to SharePoint or saves locally.
 
 .PARAMETER SiteUrl
-    Full URL of the SharePoint site. Required for SharePoint mode.
+    Full URL of the SharePoint site. Required for direct SharePoint modes.
+    When used without -FileServerRelativeUrl, -LibraryName, or
+    -AllSitesAndLibraries, the script processes all visible document libraries on
+    the specified site.
+    When combined with -IncludeSubsites in site-sweep mode, the script also
+    traverses discovered subsites and their visible document libraries.
+    When using -AllSitesAndLibraries, provide any site URL in the target tenant so
+    the script can derive the tenant admin endpoint.
+
+.PARAMETER IncludeSubsites
+    When using -SiteUrl without -FileServerRelativeUrl or -LibraryName, also
+    process visible document libraries in all discovered subsites beneath the
+    specified site.
+
+.PARAMETER SiteLibraryCsvPath
+    Path to a CSV file containing SharePoint sites and optional document library
+    names to process.
+    The CSV must contain a SiteURL column and may contain a DocLib column.
+    When DocLib is blank for a site row, the script processes all visible document
+    libraries on that site only.
 
 .PARAMETER ClientId
     Client ID of your Entra ID app registration. Required for SharePoint mode.
@@ -31,6 +50,10 @@
 
 .PARAMETER LibraryName
     Name of a document library. Processes all .docx files in the library.
+
+.PARAMETER AllSitesAndLibraries
+    Traverse all non-personal site collections in the tenant, all discovered
+    subsites, and each visible document library within them.
 
 .PARAMETER LocalPath
     Path to a local .docx file or folder of .docx files.
@@ -72,10 +95,12 @@
     Example: -SkipCreatedAfter '2025-01-01'
 
 .PARAMETER FileExtensionFilter
-    Extensions to include when using -LibraryName. Default: docx.
+    Extensions to include when processing a site, a specific library, or the
+    entire tenant. Default: docx.
 
 .PARAMETER PageSize
     Items per page when enumerating a SharePoint library. Default: 500.
+    Applies to both single-library and tenant sweep modes.
 
 .PARAMETER EnableUpdateOnOpen
     Controls whether Word fields are configured to refresh when the document is
@@ -96,6 +121,32 @@
         -SiteUrl "https://avarante.sharepoint.com/sites/docs" `
         -ClientId "your-client-id" `
         -LibraryName "Shared Documents"
+
+.EXAMPLE
+    # Entire site: all visible document libraries
+    .\Update-DocxQuickParts.ps1 `
+        -SiteUrl "https://contoso.sharepoint.com/sites/docs" `
+        -ClientId "your-client-id"
+
+.EXAMPLE
+    # Entire site and all subsites: all visible document libraries
+    .\Update-DocxQuickParts.ps1 `
+        -SiteUrl "https://contoso.sharepoint.com/sites/docs" `
+        -ClientId "your-client-id" `
+        -IncludeSubsites
+
+.EXAMPLE
+    # Entire tenant: all site collections, subsites, and visible document libraries
+    .\Update-DocxQuickParts.ps1 `
+        -SiteUrl "https://contoso.sharepoint.com/sites/docs" `
+        -ClientId "your-client-id" `
+        -AllSitesAndLibraries
+
+.EXAMPLE
+    # CSV-driven sweep: listed sites and optional libraries
+    .\Update-DocxQuickParts.ps1 `
+        -SiteLibraryCsvPath ".\sharepoint-sites.csv" `
+        -ClientId "your-client-id"
 
 .EXAMPLE
     # Local file, mark Quick Parts for refresh on open and update selected values
@@ -122,17 +173,26 @@
         -FieldProfile "QMSCore"
 #>
 
-[CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'SPSingleFile')]
+[CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'SPSiteLibraries')]
 param(
+    [Parameter(Mandatory, ParameterSetName = 'SPSiteLibraries')]
     [Parameter(Mandatory, ParameterSetName = 'SPSingleFile')]
     [Parameter(Mandatory, ParameterSetName = 'SPLibrary')]
+    [Parameter(Mandatory, ParameterSetName = 'SPTenantSweep')]
     [ValidateNotNullOrEmpty()]
     [string]$SiteUrl,
 
+    [Parameter(Mandatory, ParameterSetName = 'SPSiteLibraries')]
     [Parameter(Mandatory, ParameterSetName = 'SPSingleFile')]
     [Parameter(Mandatory, ParameterSetName = 'SPLibrary')]
+    [Parameter(Mandatory, ParameterSetName = 'SPTenantSweep')]
+    [Parameter(Mandatory, ParameterSetName = 'SPCsvSweep')]
     [ValidateNotNullOrEmpty()]
     [string]$ClientId,
+
+    [Parameter(Mandatory, ParameterSetName = 'SPCsvSweep')]
+    [ValidateNotNullOrEmpty()]
+    [string]$SiteLibraryCsvPath,
 
     [Parameter(Mandatory, ParameterSetName = 'SPSingleFile')]
     [ValidateNotNullOrEmpty()]
@@ -141,6 +201,9 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'SPLibrary')]
     [ValidateNotNullOrEmpty()]
     [string]$LibraryName,
+
+    [Parameter(Mandatory, ParameterSetName = 'SPTenantSweep')]
+    [switch]$AllSitesAndLibraries,
 
     [Parameter(Mandatory, ParameterSetName = 'Local')]
     [ValidateNotNullOrEmpty()]
@@ -159,23 +222,41 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$FieldProfile = 'default',
 
+    [Parameter(ParameterSetName = 'SPSiteLibraries')]
     [Parameter(ParameterSetName = 'SPSingleFile')]
     [Parameter(ParameterSetName = 'SPLibrary')]
+    [Parameter(ParameterSetName = 'SPTenantSweep')]
+    [Parameter(ParameterSetName = 'SPCsvSweep')]
     [switch]$SkipArchived,
 
+    [Parameter(ParameterSetName = 'SPSiteLibraries')]
     [Parameter(ParameterSetName = 'SPSingleFile')]
     [Parameter(ParameterSetName = 'SPLibrary')]
+    [Parameter(ParameterSetName = 'SPTenantSweep')]
+    [Parameter(ParameterSetName = 'SPCsvSweep')]
     [Nullable[datetime]]$SkipCreatedAfter = $null,
 
+    [Parameter(ParameterSetName = 'SPSiteLibraries')]
     [Parameter(ParameterSetName = 'SPLibrary')]
+    [Parameter(ParameterSetName = 'SPTenantSweep')]
+    [Parameter(ParameterSetName = 'SPCsvSweep')]
     [string]$FileExtensionFilter = 'docx',
 
+    [Parameter(ParameterSetName = 'SPSiteLibraries')]
     [Parameter(ParameterSetName = 'SPLibrary')]
+    [Parameter(ParameterSetName = 'SPTenantSweep')]
+    [Parameter(ParameterSetName = 'SPCsvSweep')]
     [ValidateRange(1, 5000)]
     [int]$PageSize = 500,
 
+    [Parameter(ParameterSetName = 'SPSiteLibraries')]
     [Parameter(ParameterSetName = 'SPLibrary')]
+    [Parameter(ParameterSetName = 'SPTenantSweep')]
+    [Parameter(ParameterSetName = 'SPCsvSweep')]
     [switch]$RetryFailed,
+
+    [Parameter(ParameterSetName = 'SPSiteLibraries')]
+    [switch]$IncludeSubsites,
 
     [bool]$EnableUpdateOnOpen = $true,
 
@@ -191,6 +272,7 @@ Add-Type -AssemblyName 'System.IO.Compression.FileSystem'
 # Cache for user resolution checks so we don't call Ensure-PnPUser repeatedly
 # for the same identity across multiple files. Key = "id:<LookupId>", Value = $true/$false.
 $script:resolvedUserCache = @{}
+$script:sharePointAccessTokenCache = @{}
 $script:CurrentLogContext = $null
 
 function Write-Status {
@@ -243,6 +325,57 @@ function Write-SectionHeader {
     param([string]$Title)
     Write-Host ''
     Write-Host "--- $Title ---" -ForegroundColor DarkGray
+}
+
+function Test-ResultRecord {
+    param([object]$InputObject)
+
+    if ($null -eq $InputObject) {
+        return $false
+    }
+
+    foreach ($propertyName in @('FileRef', 'Status', 'QuickPartNames', 'Updated', 'Missing')) {
+        if ($null -eq $InputObject.PSObject.Properties[$propertyName]) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Add-ResultRecords {
+    param(
+        [System.Collections.Generic.List[pscustomobject]]$Target,
+        [AllowNull()][object]$InputObject,
+        [string]$SourceDescription = 'operation'
+    )
+
+    if ($null -eq $Target -or $null -eq $InputObject) {
+        return
+    }
+
+    $items = if ((Test-ResultRecord -InputObject $InputObject) -or $InputObject -is [string]) {
+        @($InputObject)
+    }
+    elseif ($InputObject -is [System.Collections.IEnumerable]) {
+        @($InputObject)
+    }
+    else {
+        @($InputObject)
+    }
+
+    foreach ($item in $items) {
+        if ($null -eq $item) {
+            continue
+        }
+
+        if (-not (Test-ResultRecord -InputObject $item)) {
+            Write-Status "Ignoring unexpected output from $SourceDescription ($($item.GetType().FullName))." 'WARN'
+            continue
+        }
+
+        $Target.Add([pscustomobject]$item)
+    }
 }
 
 function New-NameLookup {
@@ -1627,12 +1760,16 @@ function Undo-PnPFileCheckoutCompat {
     param([string]$FileRef)
 
     if (Get-Command -Name 'Undo-PnPFileCheckedOut' -ErrorAction SilentlyContinue) {
-        Undo-PnPFileCheckedOut -Url $FileRef -ErrorAction Stop
+        Invoke-WithRetry -OperationName "Undo checkout for '$FileRef'" -Action {
+            Undo-PnPFileCheckedOut -Url $FileRef -ErrorAction Stop
+        }
         return
     }
 
     if (Get-Command -Name 'Undo-PnPFileCheckout' -ErrorAction SilentlyContinue) {
-        Undo-PnPFileCheckout -Url $FileRef -ErrorAction Stop
+        Invoke-WithRetry -OperationName "Undo checkout for '$FileRef'" -Action {
+            Undo-PnPFileCheckout -Url $FileRef -ErrorAction Stop
+        }
         return
     }
 
@@ -2301,7 +2438,14 @@ function Upload-DocxBytesBack {
         $folderPath = $folderFull.TrimStart('/')
     }
 
-    $spFile = if ($ExistingListItem) { $ExistingListItem } else { Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop }
+    $spFile = if ($ExistingListItem) {
+        $ExistingListItem
+    }
+    else {
+        Invoke-WithRetry -OperationName "Load list item for '$FileRef'" -Action {
+            Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+        }
+    }
     $uiVersion = [string]$spFile.FieldValues['_UIVersionString']
     $requiredUploadValues = Get-RequiredUploadFieldValues -ListItem $spFile -Fields $Fields
     Write-Host "    Version     : $uiVersion"
@@ -2318,7 +2462,9 @@ function Upload-DocxBytesBack {
         $coUser = if (Test-ObjectTypeName -InputObject $checkedOutBy -TypeNames @('Microsoft.SharePoint.Client.FieldUserValue')) { [string]$checkoutLookupValue } else { [string]$checkedOutBy }
         $ctx = Get-PnPContext
         $ctx.Load($ctx.Web.CurrentUser)
-        $null = Invoke-PnPQuery
+        $null = Invoke-WithRetry -OperationName 'Load current SharePoint user' -Action {
+            Invoke-PnPQuery
+        }
 
         $currentUser = $ctx.Web.CurrentUser
         $currentCandidates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -2361,6 +2507,22 @@ function Upload-DocxBytesBack {
 
     $checkinOk = $false
 
+    $refreshWopiCache = {
+        try {
+            $ctx = Get-PnPContext
+            $spFileObj = $ctx.Web.GetFileByServerRelativeUrl($FileRef)
+            $ctx.Load($spFileObj)
+            $ctx.Load($spFileObj.ListItemAllFields)
+            Invoke-PnPQuery
+            $spFileObj.ListItemAllFields.UpdateOverwriteVersion()
+            Invoke-PnPQuery
+            Write-Host '    WopiRefresh : ETag updated'
+        }
+        catch {
+            Write-Status "    WopiRefresh : Could not force ETag update - $($_.Exception.Message)" -Level WARN
+        }
+    }
+
     if ($VersioningDisabled) {
         $memoryStream = New-Object System.IO.MemoryStream(, $Bytes)
         try {
@@ -2375,13 +2537,23 @@ function Upload-DocxBytesBack {
                 $addFileParameters['Values'] = $requiredUploadValues
             }
             try {
-                Add-PnPFile @addFileParameters | Out-Null
+                Invoke-WithRetry -OperationName "Upload '$FileRef'" -Action {
+                    if ($memoryStream.CanSeek) {
+                        $memoryStream.Position = 0
+                    }
+                    Add-PnPFile @addFileParameters | Out-Null
+                }
             }
             catch {
                 if ($requiredUploadValues.Count -gt 0) {
                     Write-Status "    Upload with metadata failed ($($_.Exception.Message)) — retrying without metadata" -Level WARN
                     $memoryStream = New-Object System.IO.MemoryStream(, $Bytes)
-                    Add-PnPFile -FileName $leafName -Folder $folderPath -Stream $memoryStream -ErrorAction Stop | Out-Null
+                    Invoke-WithRetry -OperationName "Upload '$FileRef' without metadata" -Action {
+                        if ($memoryStream.CanSeek) {
+                            $memoryStream.Position = 0
+                        }
+                        Add-PnPFile -FileName $leafName -Folder $folderPath -Stream $memoryStream -ErrorAction Stop | Out-Null
+                    }
                 }
                 else {
                     throw
@@ -2389,6 +2561,7 @@ function Upload-DocxBytesBack {
             }
             Write-Host '    Upload      : file replaced'
             Write-Host "    Result      : $uiVersion (unchanged)"
+            & $refreshWopiCache
             $checkinOk = $true
         }
         catch {
@@ -2414,7 +2587,9 @@ function Upload-DocxBytesBack {
             }
             else {
                 Write-Host '    Strategy    : explicit checkout -> upload -> Set-PnPFileCheckedIn OverwriteCheckIn'
-                Set-PnPFileCheckedOut -Url $FileRef -ErrorAction Stop
+                Invoke-WithRetry -OperationName "Check out '$FileRef'" -Action {
+                    Set-PnPFileCheckedOut -Url $FileRef -ErrorAction Stop
+                }
                 $performedCheckout = $true
             }
 
@@ -2422,7 +2597,12 @@ function Upload-DocxBytesBack {
                 $addFileParameters['Values'] = $requiredUploadValues
             }
             try {
-                Add-PnPFile @addFileParameters | Out-Null
+                Invoke-WithRetry -OperationName "Upload '$FileRef'" -Action {
+                    if ($memoryStream.CanSeek) {
+                        $memoryStream.Position = 0
+                    }
+                    Add-PnPFile @addFileParameters | Out-Null
+                }
             }
             catch {
                 if ($requiredUploadValues.Count -gt 0) {
@@ -2430,7 +2610,12 @@ function Upload-DocxBytesBack {
                     $memoryStream = New-Object System.IO.MemoryStream(, $Bytes)
                     $addFileParameters.Remove('Values')
                     $addFileParameters['Stream'] = $memoryStream
-                    Add-PnPFile @addFileParameters | Out-Null
+                    Invoke-WithRetry -OperationName "Upload '$FileRef' without metadata" -Action {
+                        if ($memoryStream.CanSeek) {
+                            $memoryStream.Position = 0
+                        }
+                        Add-PnPFile @addFileParameters | Out-Null
+                    }
                 }
                 else {
                     throw
@@ -2438,14 +2623,18 @@ function Upload-DocxBytesBack {
             }
 
             if ($performedCheckout) {
-                Set-PnPFileCheckedIn -Url $FileRef -Comment 'Synced Quick Parts from SharePoint metadata' -CheckinType OverwriteCheckIn -ErrorAction Stop
+                Invoke-WithRetry -OperationName "Check in '$FileRef'" -Action {
+                    Set-PnPFileCheckedIn -Url $FileRef -Comment 'Synced Quick Parts from SharePoint metadata' -CheckinType OverwriteCheckIn -ErrorAction Stop
+                }
             }
             Write-Host '    Upload      : file replaced & checked in'
         }
         catch {
             Write-Status "    Upload/checkin failed - $($_.Exception.Message)" -Level ERROR
             try {
-                $postFile = Get-PnPFile -Url $FileRef -AsListItem -ErrorAction SilentlyContinue
+                $postFile = Invoke-WithRetry -OperationName "Verify checkout state for '$FileRef'" -Action {
+                    Get-PnPFile -Url $FileRef -AsListItem -ErrorAction SilentlyContinue
+                }
                 if ($postFile -and $postFile.FieldValues['CheckoutUser'] -and $performedCheckout) {
                     Write-Status '    UndoCheckout: reverting due to failure' -Level WARN
                     Undo-PnPFileCheckoutCompat -FileRef $FileRef
@@ -2461,7 +2650,9 @@ function Upload-DocxBytesBack {
         }
 
         try {
-            $postFile = Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+            $postFile = Invoke-WithRetry -OperationName "Verify upload result for '$FileRef'" -Action {
+                Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+            }
             $postVersion = [string]$postFile.FieldValues['_UIVersionString']
             $postCheckout = $postFile.FieldValues['CheckoutUser']
 
@@ -2473,8 +2664,12 @@ function Upload-DocxBytesBack {
                     Write-Status '    File is STILL checked out after OverwriteCheckIn!' -Level WARN
                     try {
                         Write-Host '    Fallback    : explicit Set-PnPFileCheckedIn -CheckinType OverwriteCheckIn'
-                        Set-PnPFileCheckedIn -Url $FileRef -Comment 'Synced Quick Parts from SharePoint metadata' -CheckinType OverwriteCheckIn -ErrorAction Stop
-                        $postFile2 = Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+                        Invoke-WithRetry -OperationName "Fallback check in '$FileRef'" -Action {
+                            Set-PnPFileCheckedIn -Url $FileRef -Comment 'Synced Quick Parts from SharePoint metadata' -CheckinType OverwriteCheckIn -ErrorAction Stop
+                        }
+                        $postFile2 = Invoke-WithRetry -OperationName "Verify fallback check-in for '$FileRef'" -Action {
+                            Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+                        }
                         $postVersion = [string]$postFile2.FieldValues['_UIVersionString']
                         $postCheckout2 = $postFile2.FieldValues['CheckoutUser']
                         if ($postCheckout2) {
@@ -2495,6 +2690,7 @@ function Upload-DocxBytesBack {
             else {
                 Write-Host "    Result      : $uiVersion (unchanged)"
             }
+            & $refreshWopiCache
             $checkinOk = $true
         }
         catch {
@@ -2509,8 +2705,10 @@ function Upload-DocxBytesBack {
 function Invoke-WithRetry {
     param(
         [scriptblock]$Action,
-        [int]$MaxAttempts = 3,
-        [int]$BaseDelayMs = 1000
+        [int]$MaxAttempts = 5,
+        [int]$BaseDelayMs = 2000,
+        [int]$MaxDelayMs = 30000,
+        [string]$OperationName = 'SharePoint operation'
     )
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
@@ -2518,14 +2716,136 @@ function Invoke-WithRetry {
             return (& $Action)
         }
         catch {
+            $isThrottled = Test-SharePointThrottleException -Exception $_.Exception
+            $isTransient = $isThrottled -or (Test-SharePointTransientException -Exception $_.Exception)
+
+            if (-not $isTransient) {
+                throw
+            }
+
             if ($attempt -eq $MaxAttempts) {
                 throw
             }
-            $delay = $BaseDelayMs * [math]::Pow(2, $attempt - 1)
-            Write-Verbose "Attempt $attempt failed: $($_.Exception.Message). Retrying in ${delay}ms..."
-            Start-Sleep -Milliseconds $delay
+
+            $delayMs = Get-SharePointRetryDelayMilliseconds -Exception $_.Exception -Attempt $attempt -BaseDelayMs $BaseDelayMs -MaxDelayMs $MaxDelayMs
+            $failureLabel = if ($isThrottled) { 'SharePoint throttling' } else { 'transient SharePoint failure' }
+            Write-Status "$OperationName hit $failureLabel on attempt $attempt of $MaxAttempts. Retrying in ${delayMs}ms. $($_.Exception.Message)" 'WARN'
+            Start-Sleep -Milliseconds $delayMs
         }
     }
+}
+
+function Test-SharePointThrottleException {
+    param([System.Exception]$Exception)
+
+    if ($null -eq $Exception) {
+        return $false
+    }
+
+    $messageParts = [System.Collections.Generic.List[string]]::new()
+    $cursor = $Exception
+    while ($cursor) {
+        if (-not [string]::IsNullOrWhiteSpace($cursor.Message)) {
+            $messageParts.Add($cursor.Message)
+        }
+
+        $statusCode = Get-SafeObjectPropertyValue -InputObject $cursor -PropertyName 'StatusCode'
+        if ($null -ne $statusCode) {
+            $messageParts.Add([string]$statusCode)
+        }
+
+        $serverErrorTypeName = Get-SafeObjectPropertyValue -InputObject $cursor -PropertyName 'ServerErrorTypeName'
+        if (-not [string]::IsNullOrWhiteSpace([string]$serverErrorTypeName)) {
+            $messageParts.Add([string]$serverErrorTypeName)
+        }
+
+        $cursor = $cursor.InnerException
+    }
+
+    $combinedMessage = $messageParts -join ' | '
+    return $combinedMessage -match '(?i)\b429\b' -or
+        $combinedMessage -match '(?i)too many requests' -or
+        $combinedMessage -match '(?i)throttl' -or
+        $combinedMessage -match '(?i)rate limit' -or
+        $combinedMessage -match '(?i)request limit' -or
+        $combinedMessage -match '(?i)server too busy' -or
+        $combinedMessage -match '(?i)retry after'
+}
+
+function Test-SharePointTransientException {
+    param([System.Exception]$Exception)
+
+    if ($null -eq $Exception) {
+        return $false
+    }
+
+    $messageParts = [System.Collections.Generic.List[string]]::new()
+    $cursor = $Exception
+    while ($cursor) {
+        if (-not [string]::IsNullOrWhiteSpace($cursor.Message)) {
+            $messageParts.Add($cursor.Message)
+        }
+
+        $statusCode = Get-SafeObjectPropertyValue -InputObject $cursor -PropertyName 'StatusCode'
+        if ($null -ne $statusCode) {
+            $messageParts.Add([string]$statusCode)
+        }
+
+        $cursor = $cursor.InnerException
+    }
+
+    $combinedMessage = $messageParts -join ' | '
+    return $combinedMessage -match '(?i)\b502\b' -or
+        $combinedMessage -match '(?i)\b503\b' -or
+        $combinedMessage -match '(?i)\b504\b' -or
+        $combinedMessage -match '(?i)timeout' -or
+        $combinedMessage -match '(?i)temporarily unavailable' -or
+        $combinedMessage -match '(?i)connection (was )?closed' -or
+        $combinedMessage -match '(?i)server too busy'
+}
+
+function Get-SharePointRetryDelayMilliseconds {
+    param(
+        [System.Exception]$Exception,
+        [int]$Attempt,
+        [int]$BaseDelayMs = 2000,
+        [int]$MaxDelayMs = 30000
+    )
+
+    $cursor = $Exception
+    while ($cursor) {
+        foreach ($propertyName in @('RetryAfter', 'RetryAfterSeconds', 'RetryAfterInSeconds', 'ServerErrorRetryAfterSeconds')) {
+            $retryValue = Get-SafeObjectPropertyValue -InputObject $cursor -PropertyName $propertyName
+            if ($retryValue -is [TimeSpan]) {
+                return [int][math]::Min($MaxDelayMs, [math]::Max(1000, [int]$retryValue.TotalMilliseconds))
+            }
+
+            $retrySeconds = 0
+            if ($null -ne $retryValue -and [int]::TryParse([string]$retryValue, [ref]$retrySeconds) -and $retrySeconds -gt 0) {
+                return [int][math]::Min($MaxDelayMs, [math]::Max(1000, $retrySeconds * 1000))
+            }
+        }
+
+        foreach ($headersPropertyName in @('ResponseHeaders', 'Headers')) {
+            $headers = Get-SafeObjectPropertyValue -InputObject $cursor -PropertyName $headersPropertyName
+            if ($null -ne $headers) {
+                foreach ($headerName in @('Retry-After', 'x-ms-retry-after-ms')) {
+                    $headerValue = Get-SafeObjectPropertyValue -InputObject $headers -PropertyName $headerName
+                    $headerSeconds = 0
+                    if ($null -ne $headerValue -and [int]::TryParse([string]$headerValue, [ref]$headerSeconds) -and $headerSeconds -gt 0) {
+                        $multiplier = if ($headerName -eq 'x-ms-retry-after-ms') { 1 } else { 1000 }
+                        return [int][math]::Min($MaxDelayMs, [math]::Max(1000, $headerSeconds * $multiplier))
+                    }
+                }
+            }
+        }
+
+        $cursor = $cursor.InnerException
+    }
+
+    $exponentialDelayMs = [int]($BaseDelayMs * [math]::Pow(2, $Attempt - 1))
+    $jitterMs = Get-Random -Minimum 250 -Maximum 1000
+    return [int][math]::Min($MaxDelayMs, $exponentialDelayMs + $jitterMs)
 }
 
 function Invoke-WithVersioningDisabled {
@@ -2534,42 +2854,672 @@ function Invoke-WithVersioningDisabled {
         [scriptblock]$Action
     )
 
-    $list = Get-PnPList -Identity $LibraryIdentity -ErrorAction Stop
+    $list = Invoke-WithRetry -OperationName "Load library settings for '$LibraryIdentity'" -Action {
+        Get-PnPList -Identity $LibraryIdentity -ErrorAction Stop
+    }
     $ctx = Get-PnPContext
     $ctx.Load($list)
-    $null = Invoke-PnPQuery
+    $null = Invoke-WithRetry -OperationName "Load client context for '$LibraryIdentity'" -Action {
+        Invoke-PnPQuery
+    }
     $savedVersioning = $list.EnableVersioning
     $savedMinorVersions = $list.EnableMinorVersions
     $savedForceCheckout = $list.ForceCheckout
     $savedDraftVisibility = $list.DraftVersionVisibility
 
+    Write-Status "Library settings before toggle: versioning=$savedVersioning, minorVersions=$savedMinorVersions, forceCheckout=$savedForceCheckout" 'INFO'
+
+    if (-not $savedVersioning) {
+        Write-Status "Versioning is already disabled on '$LibraryIdentity'; skipping temporary toggle." 'INFO'
+        & $Action
+        return
+    }
+
     Write-Status "Disabling versioning on '$LibraryIdentity'" 'INFO'
     try {
-        Set-PnPList -Identity $LibraryIdentity -EnableVersioning $false -ErrorAction Stop
+        Invoke-WithRetry -OperationName "Disable versioning on '$LibraryIdentity'" -Action {
+            Set-PnPList -Identity $LibraryIdentity -EnableVersioning $false -ErrorAction Stop | Out-Null
+        }
         if ($savedForceCheckout) {
             $list.ForceCheckout = $false
             $list.Update()
-            $null = Invoke-PnPQuery
+            $null = Invoke-WithRetry -OperationName "Disable forced checkout on '$LibraryIdentity'" -Action {
+                Invoke-PnPQuery
+            }
         }
 
         & $Action
     }
     finally {
         try {
-            Set-PnPList -Identity $LibraryIdentity -EnableVersioning $savedVersioning -EnableMinorVersions $savedMinorVersions -ErrorAction Stop
-            $listRestore = Get-PnPList -Identity $LibraryIdentity -ErrorAction Stop
-            if ($savedForceCheckout) {
-                $listRestore.ForceCheckout = $true
+            Invoke-WithRetry -OperationName "Restore versioning on '$LibraryIdentity'" -Action {
+                Set-PnPList -Identity $LibraryIdentity -EnableVersioning $savedVersioning -EnableMinorVersions $savedMinorVersions -ErrorAction Stop | Out-Null
             }
+            $listRestore = Invoke-WithRetry -OperationName "Reload library settings for '$LibraryIdentity'" -Action {
+                Get-PnPList -Identity $LibraryIdentity -ErrorAction Stop
+            }
+            $listRestore.ForceCheckout = $savedForceCheckout
             $listRestore.DraftVersionVisibility = $savedDraftVisibility
             $listRestore.Update()
-            $null = Invoke-PnPQuery
-            Write-Status "Restored versioning settings on '$LibraryIdentity'" 'SUCCESS'
+            $null = Invoke-WithRetry -OperationName "Restore checkout settings on '$LibraryIdentity'" -Action {
+                Invoke-PnPQuery
+            }
+            Write-Status "Restored versioning and checkout settings on '$LibraryIdentity'" 'SUCCESS'
         }
         catch {
             Write-Status "WARNING: Failed to restore versioning settings: $($_.Exception.Message)" 'ERROR'
+            throw "Failed to restore versioning and checkout settings on '$LibraryIdentity': $($_.Exception.Message)"
         }
     }
+}
+
+function Get-TenantAdminUrl {
+    param([string]$SiteUrl)
+
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw 'SiteUrl is required to derive the tenant admin URL.'
+    }
+
+    $siteUri = [System.Uri]$SiteUrl
+    if ($siteUri.Host -match '^[^.]+-admin\.') {
+        return "$($siteUri.Scheme)://$($siteUri.Host)"
+    }
+
+    $hostParts = $siteUri.Host.Split('.')
+    if ($hostParts.Count -lt 3 -or -not [string]::Equals($hostParts[1], 'sharepoint', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Could not derive the tenant admin URL from '$SiteUrl'."
+    }
+
+    $adminHost = "$($hostParts[0])-admin." + ($hostParts[1..($hostParts.Count - 1)] -join '.')
+    return "$($siteUri.Scheme)://$adminHost"
+}
+
+function Get-SharePointHostKey {
+    param([string]$Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        throw 'A SharePoint URL is required.'
+    }
+
+    return ([System.Uri]$Url).Host.ToLowerInvariant()
+}
+
+function Test-SharePointUnauthorizedException {
+    param([System.Exception]$Exception)
+
+    if ($null -eq $Exception) {
+        return $false
+    }
+
+    $messageParts = [System.Collections.Generic.List[string]]::new()
+    $cursor = $Exception
+    while ($cursor) {
+        if (-not [string]::IsNullOrWhiteSpace($cursor.Message)) {
+            $messageParts.Add($cursor.Message)
+        }
+        $cursor = $cursor.InnerException
+    }
+
+    $combinedMessage = $messageParts -join ' | '
+    return $combinedMessage -match '(?i)\bunauthorized\b' -or
+        $combinedMessage -match '(?i)\b401\b' -or
+        $combinedMessage -match '(?i)\bforbidden\b' -or
+        $combinedMessage -match '(?i)\b403\b' -or
+        $combinedMessage -match '(?i)access denied'
+}
+
+function Test-SharePointRetryableTokenRejectionException {
+    param([System.Exception]$Exception)
+
+    if ($null -eq $Exception) {
+        return $false
+    }
+
+    $messageParts = [System.Collections.Generic.List[string]]::new()
+    $cursor = $Exception
+    while ($cursor) {
+        if (-not [string]::IsNullOrWhiteSpace($cursor.Message)) {
+            $messageParts.Add($cursor.Message)
+        }
+        $cursor = $cursor.InnerException
+    }
+
+    $combinedMessage = $messageParts -join ' | '
+    $isAccessDenied =
+        $combinedMessage -match '(?i)\bforbidden\b' -or
+        $combinedMessage -match '(?i)\b403\b' -or
+        $combinedMessage -match '(?i)access denied' -or
+        $combinedMessage -match '(?i)attempted to perform an unauthorized operation'
+
+    if ($isAccessDenied) {
+        return $false
+    }
+
+    return $combinedMessage -match '(?i)\bunauthorized\b' -or
+        $combinedMessage -match '(?i)\b401\b' -or
+        $combinedMessage -match '(?i)token' -or
+        $combinedMessage -match '(?i)expired' -or
+        $combinedMessage -match '(?i)invalid[_ -]?jwt' -or
+        $combinedMessage -match '(?i)invalid[_ -]?token'
+}
+
+function Get-SharePointAccessTokenExpirationUtc {
+    param([string]$AccessToken)
+
+    if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+        return $null
+    }
+
+    $tokenParts = $AccessToken.Split('.')
+    if ($tokenParts.Count -lt 2) {
+        return $null
+    }
+
+    $payload = $tokenParts[1].Replace('-', '+').Replace('_', '/')
+    switch ($payload.Length % 4) {
+        2 { $payload += '==' }
+        3 { $payload += '=' }
+        1 { return $null }
+    }
+
+    try {
+        $payloadJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($payload))
+        $payloadObject = ConvertFrom-Json -InputObject $payloadJson -ErrorAction Stop
+        $expValue = Get-SafeObjectPropertyValue -InputObject $payloadObject -PropertyName 'exp'
+        if ($null -eq $expValue) {
+            return $null
+        }
+
+        $unixSeconds = 0L
+        if (-not [long]::TryParse([string]$expValue, [ref]$unixSeconds)) {
+            return $null
+        }
+
+        return [System.DateTimeOffset]::FromUnixTimeSeconds($unixSeconds).UtcDateTime
+    }
+    catch {
+        return $null
+    }
+}
+
+function New-SharePointAccessTokenCacheEntry {
+    param(
+        [string]$AccessToken,
+        [AllowNull()][string]$LastRejectedAccessToken = $null
+    )
+
+    return [pscustomobject]@{
+        AccessToken             = $AccessToken
+        ExpiresOnUtc            = Get-SharePointAccessTokenExpirationUtc -AccessToken $AccessToken
+        LastRejectedAccessToken = $LastRejectedAccessToken
+    }
+}
+
+function Test-SharePointAccessTokenNeedsRefresh {
+    param(
+        [AllowNull()][object]$CacheEntry,
+        [int]$RefreshWindowMinutes = 5
+    )
+
+    if ($null -eq $CacheEntry) {
+        return $true
+    }
+
+    $accessToken = [string](Get-SafeObjectPropertyValue -InputObject $CacheEntry -PropertyName 'AccessToken')
+    if ([string]::IsNullOrWhiteSpace($accessToken)) {
+        return $true
+    }
+
+    $expiresOnUtc = Get-SafeObjectPropertyValue -InputObject $CacheEntry -PropertyName 'ExpiresOnUtc'
+    if ($expiresOnUtc -isnot [datetime]) {
+        $expiresOnUtc = Get-SharePointAccessTokenExpirationUtc -AccessToken $accessToken
+    }
+
+    if ($expiresOnUtc -isnot [datetime]) {
+        return $false
+    }
+
+    return $expiresOnUtc -le [datetime]::UtcNow.AddMinutes($RefreshWindowMinutes)
+}
+
+function Confirm-SharePointConnectionAccess {
+    param([string]$Url)
+
+    return (Invoke-WithRetry -OperationName "Confirm access to '$Url'" -Action {
+            Get-PnPWeb -Includes Id, Title, Url, ServerRelativeUrl -ErrorAction Stop
+        })
+}
+
+function Connect-SharePointOnlineCached {
+    param(
+        [string]$Url,
+        [string]$ClientId,
+        [switch]$ForceInteractive,
+        [switch]$PassThru
+    )
+
+    $interactiveConnectParameters = @{
+        Url         = $Url
+        Interactive = $true
+        ErrorAction = 'Stop'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ClientId)) {
+        $interactiveConnectParameters.ClientId = $ClientId
+    }
+
+    $hostKey = Get-SharePointHostKey -Url $Url
+    $cacheEntry = if ($script:sharePointAccessTokenCache.ContainsKey($hostKey)) {
+        $script:sharePointAccessTokenCache[$hostKey]
+    }
+    else {
+        $null
+    }
+
+    if ($ForceInteractive -or (Test-SharePointAccessTokenNeedsRefresh -CacheEntry $cacheEntry)) {
+        Connect-PnPOnline @interactiveConnectParameters
+        $confirmedWeb = Confirm-SharePointConnectionAccess -Url $Url
+        $script:sharePointAccessTokenCache[$hostKey] = New-SharePointAccessTokenCacheEntry -AccessToken (Get-PnPAccessToken)
+        if ($PassThru) {
+            return $confirmedWeb
+        }
+        return
+    }
+
+    try {
+        Connect-PnPOnline -Url $Url -AccessToken $cacheEntry.AccessToken -ErrorAction Stop
+        $confirmedWeb = Confirm-SharePointConnectionAccess -Url $Url
+        if ($PassThru) {
+            return $confirmedWeb
+        }
+        return
+    }
+    catch {
+        if ((Test-SharePointRetryableTokenRejectionException -Exception $_.Exception) -and $cacheEntry.LastRejectedAccessToken -ne $cacheEntry.AccessToken) {
+            Write-Status "Cached SharePoint token for host '$hostKey' was rejected. Refreshing interactive sign-in for '$Url'." 'WARN'
+            $rejectedAccessToken = $cacheEntry.AccessToken
+            try {
+                Connect-PnPOnline @interactiveConnectParameters
+                $confirmedWeb = Confirm-SharePointConnectionAccess -Url $Url
+                $script:sharePointAccessTokenCache[$hostKey] = New-SharePointAccessTokenCacheEntry -AccessToken (Get-PnPAccessToken) -LastRejectedAccessToken $rejectedAccessToken
+                if ($PassThru) {
+                    return $confirmedWeb
+                }
+                return
+            }
+            catch {
+                $script:sharePointAccessTokenCache[$hostKey] = New-SharePointAccessTokenCacheEntry -AccessToken $rejectedAccessToken -LastRejectedAccessToken $rejectedAccessToken
+                throw
+            }
+        }
+
+        throw
+    }
+}
+
+function Get-TenantSiteCollectionUrls {
+    $siteUrls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $tenantSites = @(Invoke-WithRetry { Get-PnPTenantSite -Detailed -ErrorAction Stop })
+
+    foreach ($tenantSite in $tenantSites) {
+        $url = [string]$tenantSite.Url
+        if ([string]::IsNullOrWhiteSpace($url)) {
+            continue
+        }
+
+        try {
+            $uri = [System.Uri]$url
+        }
+        catch {
+            continue
+        }
+
+        if ($uri.Host -like '*-my.sharepoint.*') {
+            continue
+        }
+
+        $template = [string](Get-SafeObjectPropertyValue -InputObject $tenantSite -PropertyName 'Template')
+        if ($template -like 'SPSPERS*') {
+            continue
+        }
+
+        $siteUrls.Add($url.TrimEnd('/')) | Out-Null
+    }
+
+    return @($siteUrls | Sort-Object)
+}
+
+function Import-SiteLibraryCsvTargets {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw 'SiteLibraryCsvPath cannot be empty.'
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "CSV file was not found: $Path"
+    }
+
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    $headerLine = @(
+        Get-Content -LiteralPath $resolvedPath -ErrorAction Stop |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -First 1
+    )[0]
+
+    if ([string]::IsNullOrWhiteSpace($headerLine)) {
+        throw "CSV file '$resolvedPath' is empty."
+    }
+
+    $delimiter = ','
+    if ($headerLine.Contains(';') -and -not $headerLine.Contains(',')) {
+        $delimiter = ';'
+    }
+    elseif ($headerLine.Contains("`t") -and -not $headerLine.Contains(',') -and -not $headerLine.Contains(';')) {
+        $delimiter = "`t"
+    }
+
+    $rows = @(Import-Csv -LiteralPath $resolvedPath -Delimiter $delimiter -ErrorAction Stop)
+    if ($rows.Count -eq 0) {
+        throw "CSV file '$resolvedPath' does not contain any data rows."
+    }
+
+    $columnNames = @(Get-ObjectMemberNames -InputObject $rows[0])
+    if ($columnNames -notcontains 'SiteURL') {
+        $availableColumns = if ($columnNames.Count -gt 0) { $columnNames -join ', ' } else { 'none' }
+        throw "CSV file '$resolvedPath' must contain a SiteURL column. Detected delimiter '$delimiter'. Available columns: $availableColumns"
+    }
+
+    $targets = [System.Collections.Generic.List[pscustomobject]]::new()
+    $seenTargets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $rowNumber = 1
+
+    foreach ($row in $rows) {
+        $rowNumber++
+
+        $siteUrl = [string](Get-ObjectMemberValue -InputObject $row -MemberName 'SiteURL')
+        if ([string]::IsNullOrWhiteSpace($siteUrl)) {
+            throw "CSV row $rowNumber is missing a SiteURL value."
+        }
+
+        $siteUrl = $siteUrl.Trim()
+        $siteUri = $null
+        if (-not [System.Uri]::TryCreate($siteUrl, [System.UriKind]::Absolute, [ref]$siteUri)) {
+            throw "CSV row $rowNumber has an invalid SiteURL value: $siteUrl"
+        }
+
+        if ([string]::IsNullOrWhiteSpace($siteUri.Host)) {
+            throw "CSV row $rowNumber has an invalid SiteURL value: $siteUrl"
+        }
+
+        $normalizedSiteUrl = $siteUri.AbsoluteUri.TrimEnd('/')
+        $docLib = [string](Get-ObjectMemberValue -InputObject $row -MemberName 'DocLib')
+        $normalizedDocLib = if ([string]::IsNullOrWhiteSpace($docLib)) { $null } else { $docLib.Trim() }
+        $dedupeKey = if ($null -eq $normalizedDocLib) { "$normalizedSiteUrl|*" } else { "$normalizedSiteUrl|$normalizedDocLib" }
+
+        if (-not $seenTargets.Add($dedupeKey)) {
+            continue
+        }
+
+        $targets.Add([pscustomobject]@{
+                SiteUrl = $normalizedSiteUrl
+                DocLib  = $normalizedDocLib
+            })
+    }
+
+    if ($targets.Count -eq 0) {
+        throw "CSV file '$resolvedPath' did not yield any usable site targets."
+    }
+
+    return @($targets)
+}
+
+function Get-SharePointWebInventory {
+    param([string]$ClientId)
+
+    $webs = [System.Collections.Generic.List[pscustomobject]]::new()
+    $seenUrls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $pendingWebUrls = [System.Collections.Generic.Queue[string]]::new()
+
+    $rootWeb = Invoke-WithRetry -OperationName 'Load root web' -Action {
+        Get-PnPWeb -Includes Title, Url, ServerRelativeUrl -ErrorAction Stop
+    }
+    $currentConnectedWebUrl = ([string]$rootWeb.Url).TrimEnd('/')
+
+    if ($rootWeb -and $seenUrls.Add($currentConnectedWebUrl)) {
+        $webs.Add([pscustomobject]@{
+                Title             = [string]$rootWeb.Title
+                Url               = $currentConnectedWebUrl
+                ServerRelativeUrl = [string]$rootWeb.ServerRelativeUrl
+            })
+        $pendingWebUrls.Enqueue($currentConnectedWebUrl)
+    }
+
+    while ($pendingWebUrls.Count -gt 0) {
+        $parentWebUrl = $pendingWebUrls.Dequeue()
+
+        try {
+            if (-not [string]::Equals($parentWebUrl, $currentConnectedWebUrl, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $connectedWeb = Connect-SharePointOnlineCached -Url $parentWebUrl -ClientId $ClientId -PassThru
+                $currentConnectedWebUrl = ([string]$connectedWeb.Url).TrimEnd('/')
+            }
+
+            $childWebs = @(Invoke-WithRetry -OperationName "Enumerate child webs under '$parentWebUrl'" -Action {
+                    Get-PnPSubWeb -Includes Title, Url, ServerRelativeUrl -ErrorAction Stop
+                })
+        }
+        catch {
+            if (Test-SharePointUnauthorizedException -Exception $_.Exception) {
+                Write-Status "Skipping child web discovery under '$parentWebUrl' because the current connection does not have access: $($_.Exception.Message)" 'WARN'
+                continue
+            }
+
+            throw
+        }
+
+        foreach ($subWeb in $childWebs) {
+            $subWebUrl = ([string]$subWeb.Url).TrimEnd('/')
+            if ([string]::IsNullOrWhiteSpace($subWebUrl) -or -not $seenUrls.Add($subWebUrl)) {
+                continue
+            }
+
+            $webs.Add([pscustomobject]@{
+                    Title             = [string]$subWeb.Title
+                    Url               = $subWebUrl
+                    ServerRelativeUrl = [string]$subWeb.ServerRelativeUrl
+                })
+            $pendingWebUrls.Enqueue($subWebUrl)
+        }
+    }
+
+    return @($webs)
+}
+
+function Get-VisibleDocumentLibraries {
+    $lists = @(Invoke-WithRetry -OperationName 'Enumerate visible document libraries' -Action {
+            Get-PnPList -Includes Title, Hidden, BaseTemplate -ErrorAction Stop
+        })
+    return @(
+        $lists |
+        Where-Object { $_.BaseTemplate -eq 101 -and -not $_.Hidden } |
+        Sort-Object Title
+    )
+}
+
+function Get-SharePointListFields {
+    param([string]$ListIdentity)
+
+    return @(Invoke-WithRetry -OperationName "Load fields for '$ListIdentity'" -Action {
+            Get-PnPField -List $ListIdentity -ErrorAction Stop
+        })
+}
+
+function Process-SharePointLibrary {
+    [CmdletBinding()]
+    param(
+        [string]$LibraryName,
+        [string]$WebUrl,
+        [object[]]$Fields,
+        [System.Collections.Generic.HashSet[string]]$AllowedNames,
+        [hashtable]$AliasMap,
+        [bool]$EnableUpdateOnOpen = $true,
+        [switch]$SkipArchived,
+        [Nullable[datetime]]$SkipCreatedAfter = $null,
+        [string]$FileExtensionFilter = 'docx',
+        [int]$PageSize = 500,
+        [switch]$RetryFailed
+    )
+
+    $libraryResults = [System.Collections.Generic.List[pscustomobject]]::new()
+    $librarySettings = Invoke-WithRetry -OperationName "Load settings for library '$LibraryName'" -Action {
+        Get-PnPList -Identity $LibraryName -ErrorAction Stop
+    }
+    $versioningEnabled = [bool]$librarySettings.EnableVersioning
+
+    Write-SectionHeader "Library Sweep - $LibraryName"
+
+    $escapedFilter = [System.Security.SecurityElement]::Escape($FileExtensionFilter)
+    $camlQuery = "<View Scope='RecursiveAll'><Query><Where>" +
+    "<Eq><FieldRef Name='File_x0020_Type'/><Value Type='Text'>$escapedFilter</Value></Eq>" +
+    "</Where></Query><RowLimit>$PageSize</RowLimit></View>"
+
+    $items = @(Invoke-WithRetry { Get-PnPListItem -List $LibraryName -Query $camlQuery -PageSize $PageSize })
+    Write-Status "Found $($items.Count) .$FileExtensionFilter file(s)" 'INFO'
+
+    if ($RetryFailed) {
+        if (-not (Test-Path $LogFilePath)) {
+            throw "Log file not found at $LogFilePath."
+        }
+
+        $failedRefs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        Get-Content $LogFilePath | ForEach-Object {
+            if ($_ -match '\[ERROR\]\s+(.*?\.docx)\s+- Error') {
+                $failedRefs.Add($matches[1]) | Out-Null
+            }
+        }
+
+        if ($failedRefs.Count -gt 0) {
+            $items = @($items | Where-Object { $failedRefs.Contains([string]$_.FieldValues['FileRef']) })
+            Write-Status "Retrying $($items.Count) failed file(s) found in log." 'INFO'
+        }
+        else {
+            Write-Status 'No failed files found in log.' 'WARN'
+        }
+    }
+
+    $majorItems = [System.Collections.Generic.List[object]]::new()
+    $minorItems = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($item in $items) {
+        $fileRef = [string]$item.FieldValues['FileRef']
+        $leafName = [System.IO.Path]::GetFileName($fileRef)
+        if ($leafName -like '~`$*') {
+            continue
+        }
+
+        if ($SkipArchived) {
+            $docStatus = [string]$item.FieldValues['ACTQMSDocumentStatus']
+            if ($docStatus -eq 'Archived') {
+                Write-Status "Skipping (Archived): $fileRef" 'WARN'
+                $libraryResults.Add([pscustomobject]@{ FileRef = $fileRef; Status = 'Skipped-Archived'; QuickPartNames = @(); Updated = @(); Missing = @() })
+                continue
+            }
+        }
+
+        if ($null -ne $SkipCreatedAfter) {
+            $createdDate = $item.FieldValues['Created']
+            if ($createdDate -is [datetime] -and $createdDate -ge $SkipCreatedAfter) {
+                Write-Status "Skipping (Created $($createdDate.ToString('yyyy-MM-dd'))): $fileRef" 'WARN'
+                $libraryResults.Add([pscustomobject]@{ FileRef = $fileRef; Status = 'Skipped-CreatedAfter'; QuickPartNames = @(); Updated = @(); Missing = @() })
+                continue
+            }
+        }
+
+        $versionString = [string]$item.FieldValues['_UIVersionString']
+        $isMajorVersion = ($versionString -match '^\d+\.0$' -and $versionString -ne '0.0')
+        if ($versioningEnabled -and $isMajorVersion) {
+            $majorItems.Add($item)
+        }
+        else {
+            $minorItems.Add($item)
+        }
+    }
+
+    Write-Status "Batches: $($majorItems.Count) major version(s), $($minorItems.Count) minor version(s)" 'INFO'
+    $totalFiles = $majorItems.Count + $minorItems.Count
+    $processed = 0
+    $progressActivity = "Syncing Quick Parts - $LibraryName"
+
+    if ($majorItems.Count -gt 0) {
+        if ($WhatIfPreference) {
+            Write-SectionHeader 'Pass 1 - Major versions (WhatIf)'
+
+            foreach ($item in $majorItems) {
+                $processed++
+                $fileRef = [string]$item.FieldValues['FileRef']
+                Write-Progress -Activity $progressActivity -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
+                try {
+                    Add-ResultRecords -Target $libraryResults -InputObject (Process-SharePointFile -FileRef $fileRef -WebUrl $WebUrl -Fields $Fields -AllowedNames $AllowedNames -AliasMap $AliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -ListItem $item) -SourceDescription "SharePoint file '$fileRef'"
+                }
+                catch {
+                    $libraryResults.Add([pscustomobject]@{
+                            FileRef        = $fileRef
+                            Status         = "Error: $($_.Exception.Message)"
+                            QuickPartNames = @()
+                            Updated        = @()
+                            Missing        = @()
+                        })
+                }
+            }
+        }
+        else {
+            Write-SectionHeader 'Pass 1 - Major versions (versioning disabled)'
+
+            Invoke-WithVersioningDisabled -LibraryIdentity $LibraryName -Action {
+                foreach ($item in $majorItems) {
+                    $processed++
+                    $fileRef = [string]$item.FieldValues['FileRef']
+                    Write-Progress -Activity $progressActivity -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
+                    try {
+                        Add-ResultRecords -Target $libraryResults -InputObject (Process-SharePointFile -FileRef $fileRef -WebUrl $WebUrl -Fields $Fields -AllowedNames $AllowedNames -AliasMap $AliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -VersioningDisabled -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -ListItem $item) -SourceDescription "SharePoint file '$fileRef'"
+                    }
+                    catch {
+                        $libraryResults.Add([pscustomobject]@{
+                                FileRef        = $fileRef
+                                Status         = "Error: $($_.Exception.Message)"
+                                QuickPartNames = @()
+                                Updated        = @()
+                                Missing        = @()
+                            })
+                    }
+                }
+            }
+        }
+    }
+
+    if ($minorItems.Count -gt 0) {
+        Write-SectionHeader 'Pass 2 - Minor versions (OverwriteCheckIn)'
+
+        foreach ($item in $minorItems) {
+            $processed++
+            $fileRef = [string]$item.FieldValues['FileRef']
+            Write-Progress -Activity $progressActivity -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
+            try {
+                Add-ResultRecords -Target $libraryResults -InputObject (Process-SharePointFile -FileRef $fileRef -WebUrl $WebUrl -Fields $Fields -AllowedNames $AllowedNames -AliasMap $AliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -ListItem $item) -SourceDescription "SharePoint file '$fileRef'"
+            }
+            catch {
+                $libraryResults.Add([pscustomobject]@{
+                        FileRef        = $fileRef
+                        Status         = "Error: $($_.Exception.Message)"
+                        QuickPartNames = @()
+                        Updated        = @()
+                        Missing        = @()
+                    })
+            }
+        }
+    }
+
+    Write-Progress -Activity $progressActivity -Completed
+    return @($libraryResults)
 }
 
 function Process-SharePointFile {
@@ -2597,7 +3547,9 @@ function Process-SharePointFile {
         }
 
         if (-not $ListItem) {
-            $ListItem = Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+            $ListItem = Invoke-WithRetry -OperationName "Load list item for '$FileRef'" -Action {
+                Get-PnPFile -Url $FileRef -AsListItem -ErrorAction Stop
+            }
         }
         if ($SkipArchived) {
             $docStatus = [string]$ListItem.FieldValues['ACTQMSDocumentStatus']
@@ -2782,7 +3734,7 @@ try {
                 $index++
                 Write-Progress -Activity 'Syncing Quick Parts' -Status $file.Name -PercentComplete (100 * $index / [Math]::Max($files.Count, 1))
                 try {
-                    $results.Add((Process-LocalFile -FullPath $file.FullName -AllowedNames $allowedNameLookup -PropertyValue $PropertyValue -EnableUpdateOnOpen:$EnableUpdateOnOpen -Overwrite:$Overwrite))
+                    Add-ResultRecords -Target $results -InputObject (Process-LocalFile -FullPath $file.FullName -AllowedNames $allowedNameLookup -PropertyValue $PropertyValue -EnableUpdateOnOpen:$EnableUpdateOnOpen -Overwrite:$Overwrite) -SourceDescription "local file '$($file.FullName)'"
                 }
                 catch {
                     $results.Add([pscustomobject]@{
@@ -2799,70 +3751,273 @@ try {
         }
         else {
             $resolvedPath = (Resolve-Path $LocalPath).Path
-            $results.Add((Process-LocalFile -FullPath $resolvedPath -AllowedNames $allowedNameLookup -PropertyValue $PropertyValue -EnableUpdateOnOpen:$EnableUpdateOnOpen -Overwrite:$Overwrite))
+            Add-ResultRecords -Target $results -InputObject (Process-LocalFile -FullPath $resolvedPath -AllowedNames $allowedNameLookup -PropertyValue $PropertyValue -EnableUpdateOnOpen:$EnableUpdateOnOpen -Overwrite:$Overwrite) -SourceDescription "local file '$resolvedPath'"
         }
     }
     else {
         Import-Module PnP.PowerShell -ErrorAction Stop
 
-        Write-Status "Connecting to $SiteUrl" 'INFO'
-        Connect-PnPOnline -Url $SiteUrl -ClientId $ClientId -Interactive
-        Write-Status 'Connected.' 'SUCCESS'
+        if ($PSCmdlet.ParameterSetName -eq 'SPTenantSweep') {
+            $tenantAdminUrl = Get-TenantAdminUrl -SiteUrl $SiteUrl
+            Write-SectionHeader 'Tenant Sweep - All Sites and Libraries'
+            Write-Status "Connecting to tenant admin $tenantAdminUrl" 'INFO'
+            Connect-SharePointOnlineCached -Url $tenantAdminUrl -ClientId $ClientId -ForceInteractive
+            Write-Status 'Connected to tenant admin.' 'SUCCESS'
 
-        $web = Get-PnPWeb
-        $webUrl = $web.ServerRelativeUrl.TrimEnd('/')
+            $siteCollectionUrls = @(Get-TenantSiteCollectionUrls)
+            Write-Status "Found $($siteCollectionUrls.Count) site collection(s) in tenant scope" 'INFO'
 
-        $fieldLibraryName = $LibraryName
-        if ($PSCmdlet.ParameterSetName -eq 'SPSingleFile') {
-            $decodedRef = [System.Uri]::UnescapeDataString($FileServerRelativeUrl)
-            $relativePath = $decodedRef
-            if ($webUrl -ne '' -and $relativePath.StartsWith($webUrl, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $relativePath = $relativePath.Substring($webUrl.Length)
-            }
-            $relativePath = $relativePath.TrimStart('/')
-            $fieldLibraryName = [System.Uri]::UnescapeDataString($relativePath.Split('/')[0])
-        }
+            foreach ($siteCollectionUrl in $siteCollectionUrls) {
+                Write-SectionHeader "Site Collection - $siteCollectionUrl"
 
-        $fields = @()
-        if (-not [string]::IsNullOrWhiteSpace($fieldLibraryName)) {
-            try {
-                $fields = @(Get-PnPField -List $fieldLibraryName -ErrorAction Stop)
-            }
-            catch {
-                Write-Status "Could not load library fields for '$fieldLibraryName': $($_.Exception.Message)" 'WARN'
-            }
-        }
+                try {
+                    Connect-SharePointOnlineCached -Url $siteCollectionUrl -ClientId $ClientId
+                    $webInfos = @(Get-SharePointWebInventory -ClientId $ClientId)
+                    Write-Status "Found $($webInfos.Count) web(s)" 'INFO'
+                }
+                catch {
+                    $status = if (Test-SharePointUnauthorizedException -Exception $_.Exception) { 'Skipped-Unauthorized' } else { "Error: $($_.Exception.Message)" }
+                    $results.Add([pscustomobject]@{
+                            FileRef        = $siteCollectionUrl
+                            Status         = $status
+                            QuickPartNames = @()
+                            Updated        = @()
+                            Missing        = @()
+                        })
+                    if ($status -eq 'Skipped-Unauthorized') {
+                        Write-Status "Skipping site collection '$siteCollectionUrl' because the current connection does not have access: $($_.Exception.Message)" 'WARN'
+                    }
+                    else {
+                        Write-Status "Failed to inventory site collection '$siteCollectionUrl': $($_.Exception.Message)" 'ERROR'
+                    }
+                    continue
+                }
 
-        if ($PSCmdlet.ParameterSetName -eq 'SPSingleFile') {
-            Write-SectionHeader 'Single File - Sync Quick Parts'
+                foreach ($webInfo in $webInfos) {
+                    Write-SectionHeader "Web - $($webInfo.Url)"
 
-            $decodedRef = [System.Uri]::UnescapeDataString($FileServerRelativeUrl)
-            $spItem = Get-PnPFile -Url $decodedRef -AsListItem -ErrorAction Stop
+                    try {
+                        $currentWeb = Connect-SharePointOnlineCached -Url $webInfo.Url -ClientId $ClientId -PassThru
+                        $currentWebUrl = $currentWeb.ServerRelativeUrl.TrimEnd('/')
+                        $libraries = @(Get-VisibleDocumentLibraries)
+                    }
+                    catch {
+                        $status = if (Test-SharePointUnauthorizedException -Exception $_.Exception) { 'Skipped-Unauthorized' } else { "Error: $($_.Exception.Message)" }
+                        $results.Add([pscustomobject]@{
+                                FileRef        = $webInfo.Url
+                                Status         = $status
+                                QuickPartNames = @()
+                                Updated        = @()
+                                Missing        = @()
+                            })
+                        if ($status -eq 'Skipped-Unauthorized') {
+                            Write-Status "Skipping web '$($webInfo.Url)' because the current connection does not have access: $($_.Exception.Message)" 'WARN'
+                        }
+                        else {
+                            Write-Status "Failed to enumerate libraries for '$($webInfo.Url)': $($_.Exception.Message)" 'ERROR'
+                        }
+                        continue
+                    }
 
-            # Check skip conditions before potentially disabling versioning
-            $skipSingleFile = $false
-            if ($SkipArchived) {
-                $docStatus = [string]$spItem.FieldValues['ACTQMSDocumentStatus']
-                if ($docStatus -eq 'Archived') {
-                    Write-Status "Skipping (Archived): $decodedRef" 'WARN'
-                    $results.Add([pscustomobject]@{ FileRef = $decodedRef; Status = 'Skipped-Archived'; QuickPartNames = @(); Updated = @(); Missing = @() })
-                    $skipSingleFile = $true
+                    if ($libraries.Count -eq 0) {
+                        Write-Status 'No visible document libraries found.' 'WARN'
+                        continue
+                    }
+
+                    Write-Status "Found $($libraries.Count) visible document librar$(if ($libraries.Count -eq 1) { 'y' } else { 'ies' })" 'INFO'
+
+                    foreach ($library in $libraries) {
+                        $fields = @()
+                        try {
+                            $fields = @(Get-SharePointListFields -ListIdentity $library.Title)
+                        }
+                        catch {
+                            Write-Status "Could not load library fields for '$($library.Title)' in '$($webInfo.Url)': $($_.Exception.Message)" 'WARN'
+                        }
+
+                        try {
+                            Add-ResultRecords -Target $results -InputObject (Process-SharePointLibrary -LibraryName $library.Title -WebUrl $currentWebUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -FileExtensionFilter $FileExtensionFilter -PageSize $PageSize -RetryFailed:$RetryFailed) -SourceDescription "library '$($library.Title)' in '$($webInfo.Url)'"
+                        }
+                        catch {
+                            $results.Add([pscustomobject]@{
+                                    FileRef        = "$($webInfo.Url) [$($library.Title)]"
+                                    Status         = "Error: $($_.Exception.Message)"
+                                    QuickPartNames = @()
+                                    Updated        = @()
+                                    Missing        = @()
+                                })
+                            Write-Status "Library sweep failed for '$($library.Title)' in '$($webInfo.Url)': $($_.Exception.Message)" 'ERROR'
+                        }
+                    }
                 }
             }
-            if (-not $skipSingleFile -and $null -ne $SkipCreatedAfter) {
-                $createdDate = $spItem.FieldValues['Created']
-                if ($createdDate -is [datetime] -and $createdDate -ge $SkipCreatedAfter) {
-                    Write-Status "Skipping (Created $($createdDate.ToString('yyyy-MM-dd'))): $decodedRef" 'WARN'
-                    $results.Add([pscustomobject]@{ FileRef = $decodedRef; Status = 'Skipped-CreatedAfter'; QuickPartNames = @(); Updated = @(); Missing = @() })
-                    $skipSingleFile = $true
+        }
+        elseif ($PSCmdlet.ParameterSetName -eq 'SPCsvSweep') {
+            $csvTargets = @(Import-SiteLibraryCsvTargets -Path $SiteLibraryCsvPath)
+            $siteGroups = @($csvTargets | Group-Object SiteUrl)
+            $seedSiteUrl = $csvTargets[0].SiteUrl
+
+            Write-SectionHeader 'CSV Sweep - Listed Sites and Libraries'
+            Write-Status "Loaded $($csvTargets.Count) CSV target row(s) across $($siteGroups.Count) site(s)" 'INFO'
+            Write-Status "Connecting to seed site $seedSiteUrl" 'INFO'
+            Connect-SharePointOnlineCached -Url $seedSiteUrl -ClientId $ClientId -ForceInteractive
+            Write-Status 'Connected.' 'SUCCESS'
+
+            foreach ($siteGroup in $siteGroups) {
+                $targetSiteUrl = [string]$siteGroup.Name
+
+                Write-SectionHeader "Site - $targetSiteUrl"
+
+                try {
+                    $web = Connect-SharePointOnlineCached -Url $targetSiteUrl -ClientId $ClientId -PassThru
+                    $webUrl = $web.ServerRelativeUrl.TrimEnd('/')
+                }
+                catch {
+                    $status = if (Test-SharePointUnauthorizedException -Exception $_.Exception) { 'Skipped-Unauthorized' } else { "Error: $($_.Exception.Message)" }
+                    $results.Add([pscustomobject]@{
+                            FileRef        = $targetSiteUrl
+                            Status         = $status
+                            QuickPartNames = @()
+                            Updated        = @()
+                            Missing        = @()
+                        })
+                    if ($status -eq 'Skipped-Unauthorized') {
+                        Write-Status "Skipping site '$targetSiteUrl' because the current connection does not have access: $($_.Exception.Message)" 'WARN'
+                    }
+                    else {
+                        Write-Status "Failed to connect to site '$targetSiteUrl': $($_.Exception.Message)" 'ERROR'
+                    }
+                    continue
+                }
+
+                $groupRows = @($siteGroup.Group)
+                $processAllLibraries = @($groupRows | Where-Object { [string]::IsNullOrWhiteSpace($_.DocLib) }).Count -gt 0
+
+                if ($processAllLibraries) {
+                    $libraries = @(Get-VisibleDocumentLibraries)
+                    if ($libraries.Count -eq 0) {
+                        Write-Status 'No visible document libraries found on this site.' 'WARN'
+                        continue
+                    }
+
+                    Write-Status "Processing all visible document librar$(if ($libraries.Count -eq 1) { 'y' } else { 'ies' }) on '$targetSiteUrl' from CSV site row(s)" 'INFO'
+                    foreach ($library in $libraries) {
+                        $libraryFields = @()
+                        try {
+                            $libraryFields = @(Get-SharePointListFields -ListIdentity $library.Title)
+                        }
+                        catch {
+                            Write-Status "Could not load library fields for '$($library.Title)' on '$targetSiteUrl': $($_.Exception.Message)" 'WARN'
+                        }
+
+                        Add-ResultRecords -Target $results -InputObject (Process-SharePointLibrary -LibraryName $library.Title -WebUrl $webUrl -Fields $libraryFields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -FileExtensionFilter $FileExtensionFilter -PageSize $PageSize -RetryFailed:$RetryFailed) -SourceDescription "library '$($library.Title)' from CSV site '$targetSiteUrl'"
+                    }
+
+                    continue
+                }
+
+                $requestedLibraries = @($groupRows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.DocLib) } | Select-Object -ExpandProperty DocLib -Unique)
+                foreach ($requestedLibrary in $requestedLibraries) {
+                    $libraryFields = @()
+                    try {
+                        $library = Invoke-WithRetry -OperationName "Load library '$requestedLibrary' on '$targetSiteUrl'" -Action {
+                            Get-PnPList -Identity $requestedLibrary -Includes Title, Hidden, BaseTemplate -ErrorAction Stop
+                        }
+                    }
+                    catch {
+                        $results.Add([pscustomobject]@{
+                                FileRef        = "$targetSiteUrl [$requestedLibrary]"
+                                Status         = "Error: $($_.Exception.Message)"
+                                QuickPartNames = @()
+                                Updated        = @()
+                                Missing        = @()
+                            })
+                        Write-Status "Failed to find library '$requestedLibrary' on '$targetSiteUrl': $($_.Exception.Message)" 'ERROR'
+                        continue
+                    }
+
+                    if ($library.BaseTemplate -ne 101) {
+                        $results.Add([pscustomobject]@{
+                                FileRef        = "$targetSiteUrl [$requestedLibrary]"
+                                Status         = 'Skipped-NotDocumentLibrary'
+                                QuickPartNames = @()
+                                Updated        = @()
+                                Missing        = @()
+                            })
+                        Write-Status "Skipping '$requestedLibrary' on '$targetSiteUrl' because it is not a document library." 'WARN'
+                        continue
+                    }
+
+                    try {
+                        $libraryFields = @(Get-SharePointListFields -ListIdentity $library.Title)
+                    }
+                    catch {
+                        Write-Status "Could not load library fields for '$($library.Title)': $($_.Exception.Message)" 'WARN'
+                    }
+
+                    Add-ResultRecords -Target $results -InputObject (Process-SharePointLibrary -LibraryName $library.Title -WebUrl $webUrl -Fields $libraryFields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -FileExtensionFilter $FileExtensionFilter -PageSize $PageSize -RetryFailed:$RetryFailed) -SourceDescription "library '$($library.Title)' from CSV site '$targetSiteUrl'"
+                }
+            }
+        }
+        else {
+            Write-Status "Connecting to $SiteUrl" 'INFO'
+            $web = Connect-SharePointOnlineCached -Url $SiteUrl -ClientId $ClientId -ForceInteractive -PassThru
+            Write-Status 'Connected.' 'SUCCESS'
+
+            $webUrl = $web.ServerRelativeUrl.TrimEnd('/')
+
+            $fieldLibraryName = $LibraryName
+            if ($PSCmdlet.ParameterSetName -eq 'SPSingleFile') {
+                $decodedRef = [System.Uri]::UnescapeDataString($FileServerRelativeUrl)
+                $relativePath = $decodedRef
+                if ($webUrl -ne '' -and $relativePath.StartsWith($webUrl, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $relativePath = $relativePath.Substring($webUrl.Length)
+                }
+                $relativePath = $relativePath.TrimStart('/')
+                $fieldLibraryName = [System.Uri]::UnescapeDataString($relativePath.Split('/')[0])
+            }
+            elseif ($PSCmdlet.ParameterSetName -eq 'SPSiteLibraries') {
+                $fieldLibraryName = $null
+            }
+
+            $fields = @()
+            if (-not [string]::IsNullOrWhiteSpace($fieldLibraryName)) {
+                try {
+                    $fields = @(Get-SharePointListFields -ListIdentity $fieldLibraryName)
+                }
+                catch {
+                    Write-Status "Could not load library fields for '$fieldLibraryName': $($_.Exception.Message)" 'WARN'
                 }
             }
 
-            if (-not $skipSingleFile) {
-                $versionString = [string]$spItem.FieldValues['_UIVersionString']
-                $isMajorVersion = ($versionString -match '^\d+\.0$' -and $versionString -ne '0.0')
+            if ($PSCmdlet.ParameterSetName -eq 'SPSingleFile') {
+                Write-SectionHeader 'Single File - Sync Quick Parts'
 
-                if ($isMajorVersion -and -not $WhatIfPreference) {
+                $decodedRef = [System.Uri]::UnescapeDataString($FileServerRelativeUrl)
+                $spItem = Invoke-WithRetry -OperationName "Load single file metadata for '$decodedRef'" -Action {
+                    Get-PnPFile -Url $decodedRef -AsListItem -ErrorAction Stop
+                }
+
+                # Check skip conditions before potentially disabling versioning
+                $skipSingleFile = $false
+                if ($SkipArchived) {
+                    $docStatus = [string]$spItem.FieldValues['ACTQMSDocumentStatus']
+                    if ($docStatus -eq 'Archived') {
+                        Write-Status "Skipping (Archived): $decodedRef" 'WARN'
+                        $results.Add([pscustomobject]@{ FileRef = $decodedRef; Status = 'Skipped-Archived'; QuickPartNames = @(); Updated = @(); Missing = @() })
+                        $skipSingleFile = $true
+                    }
+                }
+                if (-not $skipSingleFile -and $null -ne $SkipCreatedAfter) {
+                    $createdDate = $spItem.FieldValues['Created']
+                    if ($createdDate -is [datetime] -and $createdDate -ge $SkipCreatedAfter) {
+                        Write-Status "Skipping (Created $($createdDate.ToString('yyyy-MM-dd'))): $decodedRef" 'WARN'
+                        $results.Add([pscustomobject]@{ FileRef = $decodedRef; Status = 'Skipped-CreatedAfter'; QuickPartNames = @(); Updated = @(); Missing = @() })
+                        $skipSingleFile = $true
+                    }
+                }
+
+                if (-not $skipSingleFile) {
                     $relativePath = $decodedRef
                     if ($webUrl -ne '' -and $relativePath.StartsWith($webUrl, [System.StringComparison]::OrdinalIgnoreCase)) {
                         $relativePath = $relativePath.Substring($webUrl.Length)
@@ -2873,159 +4028,103 @@ try {
                         throw "Could not infer library name from path '$decodedRef' (web='$webUrl')."
                     }
 
-                    Write-Status 'Major version detected - temporarily disabling versioning' 'INFO'
-                    Invoke-WithVersioningDisabled -LibraryIdentity $libraryIdentity -Action {
-                        $results.Add((Process-SharePointFile -FileRef $decodedRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -VersioningDisabled -SkipArchived:$false -SkipCreatedAfter $null -ListItem $spItem))
+                    $singleFileLibrary = Invoke-WithRetry -OperationName "Load library '$libraryIdentity'" -Action {
+                        Get-PnPList -Identity $libraryIdentity -ErrorAction Stop
                     }
-                }
-                else {
-                    $results.Add((Process-SharePointFile -FileRef $decodedRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$false -SkipCreatedAfter $null -ListItem $spItem))
+                    $versioningEnabled = [bool]$singleFileLibrary.EnableVersioning
+                    $versionString = [string]$spItem.FieldValues['_UIVersionString']
+                    $isMajorVersion = ($versionString -match '^\d+\.0$' -and $versionString -ne '0.0')
+
+                    if ($versioningEnabled -and $isMajorVersion -and -not $WhatIfPreference) {
+
+                        Write-Status 'Major version detected - temporarily disabling versioning' 'INFO'
+                        Invoke-WithVersioningDisabled -LibraryIdentity $libraryIdentity -Action {
+                            Add-ResultRecords -Target $results -InputObject (Process-SharePointFile -FileRef $decodedRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -VersioningDisabled -SkipArchived:$false -SkipCreatedAfter $null -ListItem $spItem) -SourceDescription "SharePoint file '$decodedRef'"
+                        }
+                    }
+                    else {
+                        Add-ResultRecords -Target $results -InputObject (Process-SharePointFile -FileRef $decodedRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$false -SkipCreatedAfter $null -ListItem $spItem) -SourceDescription "SharePoint file '$decodedRef'"
+                    }
                 }
             }
-        }
-        else {
-            Write-SectionHeader "Library Sweep - $LibraryName"
-
-            $escapedFilter = [System.Security.SecurityElement]::Escape($FileExtensionFilter)
-            $camlQuery = "<View Scope='RecursiveAll'><Query><Where>" +
-            "<Eq><FieldRef Name='File_x0020_Type'/><Value Type='Text'>$escapedFilter</Value></Eq>" +
-            "</Where></Query><RowLimit>$PageSize</RowLimit></View>"
-
-            $items = @(Invoke-WithRetry { Get-PnPListItem -List $LibraryName -Query $camlQuery -PageSize $PageSize })
-            Write-Status "Found $($items.Count) .$FileExtensionFilter file(s)" 'INFO'
-
-            if ($RetryFailed) {
-                if (-not (Test-Path $LogFilePath)) {
-                    Write-Status "Log file not found at $LogFilePath." 'ERROR'
-                    exit 1
-                }
-                $failedRefs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-                Get-Content $LogFilePath | ForEach-Object {
-                    if ($_ -match '\[ERROR\]\s+(.*?\.docx)\s+- Error') {
-                        $failedRefs.Add($matches[1]) | Out-Null
-                    }
-                }
-                if ($failedRefs.Count -gt 0) {
-                    $items = @($items | Where-Object { $failedRefs.Contains([string]$_.FieldValues['FileRef']) })
-                    Write-Status "Retrying $($items.Count) failed file(s) found in log." 'INFO'
-                }
-                else {
-                    Write-Status "No failed files found in log." 'WARN'
-                }
+            elseif ($PSCmdlet.ParameterSetName -eq 'SPLibrary') {
+                Add-ResultRecords -Target $results -InputObject (Process-SharePointLibrary -LibraryName $LibraryName -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -FileExtensionFilter $FileExtensionFilter -PageSize $PageSize -RetryFailed:$RetryFailed) -SourceDescription "library '$LibraryName'"
             }
+            else {
+                if ($IncludeSubsites) {
+                    Write-SectionHeader 'Site Sweep - Site and Subsites'
 
-            $majorItems = [System.Collections.Generic.List[object]]::new()
-            $minorItems = [System.Collections.Generic.List[object]]::new()
+                    $webInfos = @(Get-SharePointWebInventory -ClientId $ClientId)
+                    Write-Status "Found $($webInfos.Count) web(s)" 'INFO'
 
-            foreach ($item in $items) {
-                $fileRef = [string]$item.FieldValues['FileRef']
-                $leafName = [System.IO.Path]::GetFileName($fileRef)
-                if ($leafName -like '~`$*') {
-                    continue
-                }
+                    foreach ($webInfo in $webInfos) {
+                        Write-SectionHeader "Web - $($webInfo.Url)"
 
-                if ($SkipArchived) {
-                    $docStatus = [string]$item.FieldValues['ACTQMSDocumentStatus']
-                    if ($docStatus -eq 'Archived') {
-                        Write-Status "Skipping (Archived): $fileRef" 'WARN'
-                        $results.Add([pscustomobject]@{ FileRef = $fileRef; Status = 'Skipped-Archived'; QuickPartNames = @(); Updated = @(); Missing = @() })
-                        continue
-                    }
-                }
-
-                if ($null -ne $SkipCreatedAfter) {
-                    $createdDate = $item.FieldValues['Created']
-                    if ($createdDate -is [datetime] -and $createdDate -ge $SkipCreatedAfter) {
-                        Write-Status "Skipping (Created $($createdDate.ToString('yyyy-MM-dd'))): $fileRef" 'WARN'
-                        $results.Add([pscustomobject]@{ FileRef = $fileRef; Status = 'Skipped-CreatedAfter'; QuickPartNames = @(); Updated = @(); Missing = @() })
-                        continue
-                    }
-                }
-
-                $versionString = [string]$item.FieldValues['_UIVersionString']
-                $isMajorVersion = ($versionString -match '^\d+\.0$' -and $versionString -ne '0.0')
-                if ($isMajorVersion) {
-                    $majorItems.Add($item)
-                }
-                else {
-                    $minorItems.Add($item)
-                }
-            }
-
-            Write-Status "Batches: $($majorItems.Count) major version(s), $($minorItems.Count) minor version(s)" 'INFO'
-            $totalFiles = $majorItems.Count + $minorItems.Count
-            $processed = 0
-
-            if ($majorItems.Count -gt 0) {
-                if ($WhatIfPreference) {
-                    Write-SectionHeader 'Pass 1 - Major versions (WhatIf)'
-
-                    foreach ($item in $majorItems) {
-                        $processed++
-                        $fileRef = [string]$item.FieldValues['FileRef']
-                        Write-Progress -Activity 'Syncing Quick Parts (major)' -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
                         try {
-                            $results.Add((Process-SharePointFile -FileRef $fileRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -ListItem $item))
+                            $currentWeb = Connect-SharePointOnlineCached -Url $webInfo.Url -ClientId $ClientId -PassThru
+                            $currentWebUrl = $currentWeb.ServerRelativeUrl.TrimEnd('/')
+                            $libraries = @(Get-VisibleDocumentLibraries)
                         }
                         catch {
+                            $status = if (Test-SharePointUnauthorizedException -Exception $_.Exception) { 'Skipped-Unauthorized' } else { "Error: $($_.Exception.Message)" }
                             $results.Add([pscustomobject]@{
-                                    FileRef        = $fileRef
-                                    Status         = "Error: $($_.Exception.Message)"
+                                    FileRef        = $webInfo.Url
+                                    Status         = $status
                                     QuickPartNames = @()
                                     Updated        = @()
                                     Missing        = @()
                                 })
+                            if ($status -eq 'Skipped-Unauthorized') {
+                                Write-Status "Skipping web '$($webInfo.Url)' because the current connection does not have access: $($_.Exception.Message)" 'WARN'
+                            }
+                            else {
+                                Write-Status "Failed to enumerate libraries for '$($webInfo.Url)': $($_.Exception.Message)" 'ERROR'
+                            }
+                            continue
+                        }
+
+                        if ($libraries.Count -eq 0) {
+                            Write-Status 'No visible document libraries found.' 'WARN'
+                            continue
+                        }
+
+                        Write-Status "Found $($libraries.Count) visible document librar$(if ($libraries.Count -eq 1) { 'y' } else { 'ies' })" 'INFO'
+                        foreach ($library in $libraries) {
+                            $libraryFields = @()
+                            try {
+                                $libraryFields = @(Get-SharePointListFields -ListIdentity $library.Title)
+                            }
+                            catch {
+                                Write-Status "Could not load library fields for '$($library.Title)' in '$($webInfo.Url)': $($_.Exception.Message)" 'WARN'
+                            }
+
+                            Add-ResultRecords -Target $results -InputObject (Process-SharePointLibrary -LibraryName $library.Title -WebUrl $currentWebUrl -Fields $libraryFields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -FileExtensionFilter $FileExtensionFilter -PageSize $PageSize -RetryFailed:$RetryFailed) -SourceDescription "library '$($library.Title)' in '$($webInfo.Url)'"
                         }
                     }
                 }
                 else {
-                    Write-SectionHeader 'Pass 1 - Major versions (versioning disabled)'
+                    Write-SectionHeader 'Site Sweep - All Document Libraries'
 
-                    Invoke-WithVersioningDisabled -LibraryIdentity $LibraryName -Action {
-                        foreach ($item in $majorItems) {
-                            $processed++
-                            $fileRef = [string]$item.FieldValues['FileRef']
-                            Write-Progress -Activity 'Syncing Quick Parts (major)' -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
+                    $libraries = @(Get-VisibleDocumentLibraries)
+                    if ($libraries.Count -eq 0) {
+                        Write-Status 'No visible document libraries found on this site.' 'WARN'
+                    }
+                    else {
+                        Write-Status "Found $($libraries.Count) visible document librar$(if ($libraries.Count -eq 1) { 'y' } else { 'ies' })" 'INFO'
+                        foreach ($library in $libraries) {
+                            $libraryFields = @()
                             try {
-                                $results.Add((Process-SharePointFile -FileRef $fileRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -VersioningDisabled -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -ListItem $item))
+                                $libraryFields = @(Get-SharePointListFields -ListIdentity $library.Title)
                             }
                             catch {
-                                $results.Add([pscustomobject]@{
-                                        FileRef        = $fileRef
-                                        Status         = "Error: $($_.Exception.Message)"
-                                        QuickPartNames = @()
-                                        Updated        = @()
-                                        Missing        = @()
-                                    })
+                                Write-Status "Could not load library fields for '$($library.Title)': $($_.Exception.Message)" 'WARN'
                             }
+
+                            Add-ResultRecords -Target $results -InputObject (Process-SharePointLibrary -LibraryName $library.Title -WebUrl $webUrl -Fields $libraryFields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -FileExtensionFilter $FileExtensionFilter -PageSize $PageSize -RetryFailed:$RetryFailed) -SourceDescription "library '$($library.Title)'"
                         }
                     }
                 }
             }
-
-            if ($minorItems.Count -gt 0) {
-                Write-SectionHeader 'Pass 2 - Minor versions (OverwriteCheckIn)'
-
-                foreach ($item in $minorItems) {
-                    $processed++
-                    $fileRef = [string]$item.FieldValues['FileRef']
-                    Write-Progress -Activity 'Syncing Quick Parts (minor)' -Status $fileRef -PercentComplete (100 * $processed / [Math]::Max($totalFiles, 1))
-                    try {
-                        $results.Add((Process-SharePointFile -FileRef $fileRef -WebUrl $webUrl -Fields $fields -AllowedNames $allowedNameLookup -AliasMap $propertyAliasMap -EnableUpdateOnOpen:$EnableUpdateOnOpen -SkipArchived:$SkipArchived -SkipCreatedAfter $SkipCreatedAfter -ListItem $item))
-                    }
-                    catch {
-                        $results.Add([pscustomobject]@{
-                                FileRef        = $fileRef
-                                Status         = "Error: $($_.Exception.Message)"
-                                QuickPartNames = @()
-                                Updated        = @()
-                                Missing        = @()
-                            })
-                    }
-                }
-            }
-
-            Write-Progress -Activity 'Syncing Quick Parts' -Completed
         }
     }
 
@@ -3035,7 +4134,8 @@ try {
     $cleanCount = @($results | Where-Object { $_.Status -eq 'Clean' }).Count
     $archivedCount = @($results | Where-Object { $_.Status -eq 'Skipped-Archived' }).Count
     $createdAfterCount = @($results | Where-Object { $_.Status -eq 'Skipped-CreatedAfter' }).Count
-    $skippedCount = @($results | Where-Object { $_.Status -like 'Skipped*' -and $_.Status -ne 'Skipped-Archived' -and $_.Status -ne 'Skipped-CreatedAfter' }).Count
+    $unauthorizedCount = @($results | Where-Object { $_.Status -eq 'Skipped-Unauthorized' }).Count
+    $skippedCount = @($results | Where-Object { $_.Status -like 'Skipped*' -and $_.Status -ne 'Skipped-Archived' -and $_.Status -ne 'Skipped-CreatedAfter' -and $_.Status -ne 'Skipped-Unauthorized' }).Count
     $whatIfCount = @($results | Where-Object { $_.Status -eq 'WhatIf' }).Count
     $errorCount = @($results | Where-Object { $_.Status -like 'Error*' }).Count
 
@@ -3043,9 +4143,18 @@ try {
     Write-Host "  Clean         : $cleanCount"
     Write-Host "  Archived      : $archivedCount"
     Write-Host "  CreatedAfter  : $createdAfterCount"
+    Write-Host "  Unauthorized  : $unauthorizedCount"
     Write-Host "  Skipped       : $skippedCount"
     Write-Host "  WhatIf        : $whatIfCount"
     Write-Host "  Errors        : $errorCount"
+
+    if ($unauthorizedCount -gt 0) {
+        Write-Host ''
+        Write-Status 'Sites or webs skipped due to missing access:' 'WARN'
+        foreach ($result in $results | Where-Object { $_.Status -eq 'Skipped-Unauthorized' }) {
+            Write-Host "  $($result.FileRef)" -ForegroundColor Yellow
+        }
+    }
 
     if ($fixedCount -gt 0) {
         Write-Host ''

@@ -1,0 +1,2315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Parts Log Dashboard</title>
+    <style>
+        :root {
+            --colorNeutralBackground1: #edf2f8;
+            --colorNeutralBackground2: #f7f9fc;
+            --colorNeutralBackground3: rgba(255, 255, 255, 0.96);
+            --colorNeutralBackground4: #eef4fb;
+            --colorNeutralStroke1: #dde5ef;
+            --colorNeutralStroke2: #c4d0de;
+            --colorNeutralForeground1: #162032;
+            --colorNeutralForeground2: #5a6678;
+            --colorBrandBackground: #0f6cbd;
+            --colorBrandBackgroundHover: #115ea3;
+            --colorBrandBackgroundPressed: #0f548c;
+            --colorBrandBackground2: #e8f0fb;
+            --colorBrandForeground1: #0f6cbd;
+            --colorStatusWarningBackground: #fff4ce;
+            --colorStatusWarningForeground: #797775;
+            --colorStatusDangerBackground: #fde7e9;
+            --colorStatusDangerForeground: #a4262c;
+            --colorStatusSuccessBackground: #dff6dd;
+            --colorStatusSuccessForeground: #107c10;
+            --colorStatusInfoBackground: #deecf9;
+            --colorStatusInfoForeground: #004578;
+            --shadow2: 0 14px 34px rgba(15, 23, 42, 0.06);
+            --shadow4: 0 22px 56px rgba(15, 23, 42, 0.1);
+            --radiusSmall: 12px;
+            --radiusMedium: 18px;
+            --radiusLarge: 26px;
+            --spacing4: 4px;
+            --spacing8: 8px;
+            --spacing12: 12px;
+            --spacing16: 16px;
+            --spacing20: 20px;
+            --spacing24: 24px;
+            --spacing32: 32px;
+            --spacing40: 40px;
+            --fontBody: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+            --fontMono: "Cascadia Code", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: var(--fontBody);
+            color: var(--colorNeutralForeground1);
+            background:
+                radial-gradient(circle at top left, rgba(15, 108, 189, 0.08), transparent 32%),
+                radial-gradient(circle at top right, rgba(15, 108, 189, 0.06), transparent 28%),
+                linear-gradient(180deg, #f8fafc 0%, var(--colorNeutralBackground1) 100%);
+        }
+
+        .shell {
+            width: min(1680px, calc(100% - 32px));
+            margin: 20px auto 36px;
+            display: grid;
+            gap: var(--spacing20);
+        }
+
+        .app-header {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.85fr);
+            gap: var(--spacing20);
+            align-items: start;
+            padding: 26px 28px;
+            overflow: hidden;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 253, 0.96) 100%);
+            border: 1px solid var(--colorNeutralStroke1);
+            border-radius: 28px;
+            box-shadow: var(--shadow2);
+        }
+
+        .app-header::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 6px;
+            background: linear-gradient(180deg, #0f6cbd 0%, #3aa0f3 100%);
+        }
+
+        .header-main {
+            padding-left: var(--spacing8);
+        }
+
+        .header-caption {
+            display: inline-flex;
+            align-items: center;
+            min-height: 28px;
+            padding: 0 12px;
+            margin-bottom: var(--spacing12);
+            border-radius: 999px;
+            background: var(--colorBrandBackground2);
+            border: 1px solid #d4e3f7;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--colorBrandForeground1);
+        }
+
+        .header-title {
+            margin: 0;
+            max-width: 18ch;
+            font-size: clamp(28px, 3.5vw, 40px);
+            font-weight: 600;
+            line-height: 1.08;
+            letter-spacing: -0.02em;
+        }
+
+        .header-subtitle {
+            max-width: 68ch;
+            margin: var(--spacing12) 0 0;
+            font-size: 14px;
+            line-height: 1.65;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .header-meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: var(--spacing12);
+        }
+
+        .header-meta-card {
+            min-height: 100%;
+            padding: 16px 18px;
+            background: linear-gradient(180deg, rgba(232, 240, 251, 0.7) 0%, rgba(255, 255, 255, 0.88) 100%);
+            border: 1px solid #d7e2f1;
+            border-radius: 20px;
+        }
+
+        .meta-label {
+            display: block;
+            margin-bottom: var(--spacing8);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .meta-value {
+            display: block;
+            margin-top: var(--spacing8);
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .panel {
+            position: relative;
+            overflow: hidden;
+            background: var(--colorNeutralBackground3);
+            border: 1px solid var(--colorNeutralStroke1);
+            border-radius: var(--radiusLarge);
+            box-shadow: var(--shadow2);
+        }
+
+        .panel::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .import-strip {
+            display: grid;
+            grid-template-columns: minmax(240px, 0.78fr) minmax(320px, 1.18fr) minmax(340px, 0.94fr);
+            gap: 18px;
+            align-items: stretch;
+            padding: var(--spacing20);
+        }
+
+        .import-summary h2 {
+            margin: 0 0 10px;
+            font-size: 22px;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        .import-summary p {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .section-kicker {
+            display: block;
+            margin-bottom: var(--spacing8);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--colorBrandForeground1);
+        }
+
+        .dropzone {
+            display: grid;
+            align-items: center;
+            min-height: 140px;
+            padding: 18px 20px;
+            border: 1px dashed #87b2dd;
+            border-radius: var(--radiusMedium);
+            background: linear-gradient(180deg, #edf4fc 0%, #f8fbfe 100%);
+            text-align: left;
+            transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+        }
+
+        .dropzone.is-active {
+            border-color: var(--colorBrandBackgroundHover);
+            background: #e5f0fb;
+            box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.12);
+        }
+
+        .dropzone strong {
+            display: block;
+            margin-bottom: var(--spacing8);
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--colorNeutralForeground1);
+        }
+
+        .dropzone p {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .import-actions {
+            display: grid;
+            gap: var(--spacing12);
+            align-content: start;
+            padding-top: 2px;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: var(--spacing12);
+        }
+
+        button,
+        .button-link,
+        select,
+        input[type="search"],
+        input[type="text"],
+        input[type="datetime-local"] {
+            font: inherit;
+        }
+
+        .button,
+        .button-link {
+            min-height: 40px;
+            padding: 10px 16px;
+            border-radius: var(--radiusSmall);
+            border: 1px solid transparent;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: 600;
+            transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .button:hover,
+        .button-link:hover {
+            box-shadow: var(--shadow2);
+        }
+
+        .button:disabled,
+        .button-link:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .button.primary {
+            background: var(--colorBrandBackground);
+            color: #ffffff;
+        }
+
+        .button.primary:hover {
+            background: var(--colorBrandBackgroundHover);
+        }
+
+        .button.secondary {
+            background: var(--colorNeutralBackground3);
+            border-color: var(--colorNeutralStroke2);
+            color: var(--colorNeutralForeground1);
+        }
+
+        .button.secondary:hover {
+            background: var(--colorNeutralBackground4);
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .toolbar {
+            display: grid;
+            grid-template-columns: 1.5fr repeat(5, minmax(0, 1fr));
+            gap: var(--spacing16);
+            padding: 16px 20px;
+            position: sticky;
+            top: 10px;
+            z-index: 8;
+            backdrop-filter: blur(14px);
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing8);
+        }
+
+        .field label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .field input,
+        .field select,
+        .compact-select,
+        .inline-field select {
+            width: 100%;
+            min-height: 40px;
+            padding: 10px 12px;
+            border-radius: var(--radiusSmall);
+            border: 1px solid var(--colorNeutralStroke2);
+            background: var(--colorNeutralBackground3);
+            color: var(--colorNeutralForeground1);
+            outline: none;
+        }
+
+        .field input:focus,
+        .field select:focus,
+        .compact-select:focus,
+        .inline-field select:focus {
+            border-color: var(--colorBrandForeground1);
+            box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.16);
+        }
+
+        .stats-grid,
+        .status-grid {
+            display: grid;
+            gap: 14px;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .status-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .stat-card {
+            min-height: 118px;
+            padding: 16px 18px 18px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .stats-grid .stat-card::after,
+        .status-grid .stat-card::after {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 4px;
+            background: var(--card-accent, #b7c8dc);
+        }
+
+        .stats-grid .stat-card:nth-child(1) {
+            --card-accent: #0f6cbd;
+        }
+
+        .stats-grid .stat-card:nth-child(2) {
+            --card-accent: #b88900;
+        }
+
+        .stats-grid .stat-card:nth-child(3) {
+            --card-accent: #d13438;
+        }
+
+        .stats-grid .stat-card:nth-child(4) {
+            --card-accent: #57758f;
+        }
+
+        .stats-grid .stat-card:nth-child(5) {
+            --card-accent: #7a3cff;
+        }
+
+        .status-grid .stat-card:nth-child(1) {
+            --card-accent: #d13438;
+        }
+
+        .status-grid .stat-card:nth-child(2) {
+            --card-accent: #8a6e00;
+        }
+
+        .status-grid .stat-card:nth-child(3) {
+            --card-accent: #115ea3;
+        }
+
+        .status-grid .stat-card:nth-child(4) {
+            --card-accent: #6b4eff;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .stat-value {
+            margin: 10px 0 6px;
+            font-size: clamp(26px, 2.8vw, 36px);
+            font-weight: 600;
+            line-height: 1;
+            letter-spacing: -0.02em;
+        }
+
+        .stat-note {
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .content-grid,
+        .analytics-grid,
+        .mini-stack {
+            display: grid;
+            gap: var(--spacing20);
+        }
+
+        .content-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .analytics-grid {
+            grid-template-columns: minmax(0, 1fr);
+            align-items: start;
+        }
+
+        .mini-stack {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .chart-card {
+            min-height: 288px;
+        }
+
+        .chart-card.compact {
+            min-height: 300px;
+        }
+
+        .insight-card {
+            min-height: 300px;
+        }
+
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: var(--spacing16);
+            padding: 18px 18px 0;
+        }
+
+        .panel-head h2,
+        .panel-head h3 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+
+        .panel-tools {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing8);
+            flex-wrap: wrap;
+        }
+
+        .explorer-toolbar {
+            display: grid;
+            grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(170px, 0.7fr));
+            gap: 12px;
+            padding: 12px 18px 16px;
+            border-bottom: 1px solid var(--colorNeutralStroke1);
+            background: linear-gradient(180deg, rgba(247, 249, 252, 0.84) 0%, rgba(255, 255, 255, 0.7) 100%);
+        }
+
+        .explorer-toolbar .field {
+            gap: 6px;
+        }
+
+        .panel-subtitle {
+            margin-top: var(--spacing8);
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .chart-wrap {
+            min-height: 214px;
+            padding: 12px 18px 18px;
+            background: linear-gradient(180deg, transparent 0%, rgba(238, 244, 251, 0.52) 100%);
+        }
+
+        .chart-card.compact .chart-wrap {
+            min-height: 242px;
+        }
+
+        .insight-card .insights {
+            min-height: 242px;
+            align-content: start;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .list-panel {
+            padding-bottom: var(--spacing8);
+        }
+
+        .insights {
+            display: grid;
+            gap: var(--spacing12);
+            padding: 14px 18px 18px;
+        }
+
+        .insight-item {
+            padding: 14px 16px;
+            border: 1px solid var(--colorNeutralStroke1);
+            border-radius: 14px;
+            background: linear-gradient(180deg, #fbfcfe 0%, #f4f8fc 100%);
+        }
+
+        .insight-item strong {
+            display: block;
+            margin-bottom: var(--spacing8);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--colorNeutralForeground1);
+        }
+
+        .table-wrap {
+            overflow: auto;
+            padding: 0 18px 12px;
+        }
+
+        .results-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: var(--spacing12);
+            flex-wrap: wrap;
+            padding: 0 18px 18px;
+        }
+
+        .results-summary,
+        .page-indicator,
+        .inline-field {
+            font-size: 13px;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing8);
+            flex-wrap: wrap;
+        }
+
+        .inline-field {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing8);
+        }
+
+        .page-indicator {
+            min-width: 112px;
+            text-align: center;
+        }
+
+        table {
+            width: 100%;
+            min-width: 1100px;
+            border-collapse: separate;
+            border-spacing: 0;
+            border: 1px solid var(--colorNeutralStroke1);
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--colorNeutralBackground3);
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            padding: 12px 14px;
+            text-align: left;
+            font-size: 10.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--colorNeutralForeground2);
+            background: var(--colorNeutralBackground2);
+            border-bottom: 1px solid var(--colorNeutralStroke1);
+        }
+
+        tbody td {
+            padding: 14px;
+            vertical-align: top;
+            border-bottom: 1px solid var(--colorNeutralStroke1);
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr:hover {
+            background: #fafafa;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            border: 1px solid transparent;
+        }
+
+        .badge.warn {
+            background: var(--colorStatusWarningBackground);
+            color: #8a6e00;
+        }
+
+        .badge.error {
+            background: var(--colorStatusDangerBackground);
+            color: var(--colorStatusDangerForeground);
+        }
+
+        .badge.info {
+            background: var(--colorStatusInfoBackground);
+            color: var(--colorStatusInfoForeground);
+        }
+
+        .badge.success {
+            background: var(--colorStatusSuccessBackground);
+            color: var(--colorStatusSuccessForeground);
+        }
+
+        .badge.neutral {
+            background: #f3f2f1;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .badge.category {
+            margin-right: var(--spacing8);
+            margin-bottom: var(--spacing8);
+            background: var(--colorBrandBackground2);
+            color: var(--colorBrandForeground1);
+        }
+
+        .message {
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .context {
+            margin-top: var(--spacing4);
+            font-family: var(--fontMono);
+            font-size: 11px;
+            line-height: 1.6;
+            color: var(--colorNeutralForeground2);
+            word-break: break-word;
+        }
+
+        .empty-state {
+            padding: 48px var(--spacing20);
+            text-align: center;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .empty-state strong {
+            display: block;
+            margin-bottom: var(--spacing8);
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--colorNeutralForeground1);
+        }
+
+        .footer {
+            padding: 0 8px;
+            font-size: 12px;
+            color: var(--colorNeutralForeground2);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 1365px) {
+            .app-header,
+            .analytics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header-meta {
+                grid-template-columns: 1fr;
+            }
+
+            .import-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .mini-stack {
+                grid-template-columns: 1fr;
+            }
+
+            .toolbar {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .explorer-toolbar {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .status-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 900px) {
+            .shell {
+                width: min(100% - 16px, 100%);
+                margin-top: 12px;
+            }
+
+            .toolbar,
+            .stats-grid,
+            .status-grid,
+            .actions,
+            .mini-stack {
+                grid-template-columns: 1fr;
+            }
+
+            .app-header {
+                padding: 20px;
+            }
+
+            .results-controls,
+            .panel-head {
+                align-items: stretch;
+            }
+
+            table {
+                min-width: 720px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <header class="app-header">
+            <div class="header-main">
+                <div class="header-caption">Quick Parts Log Dashboard</div>
+                <h1 class="header-title">Operational review for Update-DocxQuickParts logs</h1>
+                <p class="header-subtitle">
+                    Load the warning and error log, then inspect failures, retries, archive skips, and permission issues through grouped views that are easier to scan than the raw output.
+                </p>
+            </div>
+            <aside class="header-meta">
+                <div class="header-meta-card">
+                    <span class="meta-label">Explorer modes</span>
+                    <strong>Files, libraries, sites, or raw events</strong>
+                    <span class="meta-value">Start with grouped views to reduce noise, then switch to events only when you need line-level detail.</span>
+                </div>
+                <div class="header-meta-card">
+                    <span class="meta-label">Exports</span>
+                    <strong>Visible slice or all failed rows</strong>
+                    <span class="meta-value">Filtering and CSV export remain local to the browser session.</span>
+                </div>
+            </aside>
+        </header>
+
+        <section class="panel import-strip">
+            <div class="import-summary">
+                <span class="section-kicker">Log source</span>
+                <h2>Load the log file</h2>
+                <p>Choose or drop the Update-DocxQuickParts warning and error log. Once loaded, every chart, card, filter, and export updates immediately.</p>
+            </div>
+            <label class="dropzone" id="dropzone" for="logFileInput">
+                <div>
+                    <strong>Drop the log file here</strong>
+                    <p>Supports .log, .txt, and .csv files produced by Update-DocxQuickParts.ps1 or exported from this dashboard.</p>
+                </div>
+            </label>
+            <div class="import-actions">
+                <input id="logFileInput" type="file" accept=".log,.txt,.csv,text/csv">
+                <div class="actions">
+                    <button class="button primary" id="browseButton" type="button">Choose Log File</button>
+                    <button class="button secondary" id="loadSampleButton" type="button">Load Sample Data</button>
+                    <button class="button secondary" id="exportButton" type="button">Export Visible CSV</button>
+                    <button class="button secondary" id="exportFailedButton" type="button">Export All Failed CSV</button>
+                </div>
+                <div class="panel-subtitle" id="fileStatus">No log loaded yet.</div>
+            </div>
+        </section>
+
+        <section class="panel toolbar" aria-label="Filters">
+            <div class="field">
+                <label for="searchInput">Search</label>
+                <input id="searchInput" type="search" placeholder="Search message text, site URL, library, file, or category">
+            </div>
+            <div class="field">
+                <label for="levelFilter">Level</label>
+                <select id="levelFilter">
+                    <option value="all">All levels</option>
+                    <option value="INFO">Info only</option>
+                    <option value="SUCCESS">Success only</option>
+                    <option value="WARN">Warnings only</option>
+                    <option value="ERROR">Errors only</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="statusFilter">Status</label>
+                <select id="statusFilter">
+                    <option value="all">All statuses</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="categoryFilter">Category</label>
+                <select id="categoryFilter">
+                    <option value="all">All categories</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="contextFilter">Context</label>
+                <select id="contextFilter">
+                    <option value="all">All contexts</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="sortFilter">Sort</label>
+                <select id="sortFilter">
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="severity">Severity first</option>
+                    <option value="context">Context</option>
+                </select>
+            </div>
+        </section>
+
+        <section class="stats-grid" id="statsGrid">
+            <article class="panel stat-card">
+                <div class="stat-label">Visible Events</div>
+                <div class="stat-value" id="visibleCount">0</div>
+                <div class="stat-note">Lines matching the current filters</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Warnings</div>
+                <div class="stat-value" id="warningCount">0</div>
+                <div class="stat-note">Filtered warning entries</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Errors</div>
+                <div class="stat-value" id="errorCount">0</div>
+                <div class="stat-note">Filtered error entries</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Unique Contexts</div>
+                <div class="stat-value" id="contextCount">0</div>
+                <div class="stat-note">Distinct file, site, or web scopes</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Throttle Events</div>
+                <div class="stat-value" id="throttleCount">0</div>
+                <div class="stat-note">Retry/backoff related warnings</div>
+            </article>
+        </section>
+
+        <section class="status-grid">
+            <article class="panel stat-card">
+                <div class="stat-label">Failed</div>
+                <div class="stat-value" id="failedStatusCount">0</div>
+                <div class="stat-note">Filtered rows marked as failed</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Archived</div>
+                <div class="stat-value" id="archivedStatusCount">0</div>
+                <div class="stat-note">Archived documents skipped in scope</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Unauthorized</div>
+                <div class="stat-value" id="unauthorizedStatusCount">0</div>
+                <div class="stat-note">Access and permission related rows</div>
+            </article>
+            <article class="panel stat-card">
+                <div class="stat-label">Retrying</div>
+                <div class="stat-value" id="retryStatusCount">0</div>
+                <div class="stat-note">Rows with retry or backoff behavior</div>
+            </article>
+        </section>
+
+        <section class="content-grid">
+            <div class="analytics-grid">
+                <article class="panel chart-card">
+                    <div class="panel-head">
+                        <div>
+                            <h2>Trend Over Time</h2>
+                            <div class="panel-subtitle">Grouped by minute across the loaded log.</div>
+                        </div>
+                    </div>
+                    <div class="chart-wrap"><canvas id="timelineChart" width="900" height="300"></canvas></div>
+                </article>
+
+                <div class="mini-stack">
+                    <article class="panel chart-card compact">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Severity Mix</h3>
+                                <div class="panel-subtitle">Warnings versus errors in the current slice.</div>
+                            </div>
+                        </div>
+                        <div class="chart-wrap"><canvas id="severityChart" width="420" height="260"></canvas></div>
+                    </article>
+
+                    <article class="panel chart-card compact">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Top Categories</h3>
+                                <div class="panel-subtitle">Message clusters inferred from the log text.</div>
+                            </div>
+                        </div>
+                        <div class="chart-wrap"><canvas id="categoryChart" width="420" height="260"></canvas></div>
+                    </article>
+
+                    <article class="panel chart-card compact">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Hot Contexts</h3>
+                                <div class="panel-subtitle">Files, libraries, sites, or webs with the most events.</div>
+                            </div>
+                        </div>
+                        <div class="chart-wrap"><canvas id="contextChart" width="420" height="260"></canvas></div>
+                    </article>
+
+                    <article class="panel insight-card">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Run Insights</h3>
+                                <div class="panel-subtitle">Fast readout of the current failure shape.</div>
+                            </div>
+                        </div>
+                        <div class="insights" id="insightsPanel"></div>
+                    </article>
+                </div>
+            </div>
+
+            <article class="panel list-panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>Event Explorer</h2>
+                        <div class="panel-subtitle" id="resultsMeta">No log loaded.</div>
+                    </div>
+                    <div class="panel-tools">
+                        <label class="inline-field" for="explorerModeSelect">
+                            View
+                            <select class="compact-select" id="explorerModeSelect">
+                                <option value="file" selected>Files</option>
+                                <option value="library">Libraries</option>
+                                <option value="site">Sites</option>
+                                <option value="event">Events</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                <div class="explorer-toolbar">
+                    <div class="field">
+                        <label for="explorerSearchInput">Explorer search</label>
+                        <input id="explorerSearchInput" type="search" placeholder="Search file, site, message, status, or category">
+                    </div>
+                    <div class="field">
+                        <label for="explorerFilterSelect">Explorer filter</label>
+                        <select id="explorerFilterSelect">
+                            <option value="all">All rows</option>
+                            <option value="errors">Errors only</option>
+                            <option value="warnings">Warnings only</option>
+                            <option value="failed">Failed only</option>
+                            <option value="unauthorized">Unauthorized only</option>
+                            <option value="archived">Archived only</option>
+                            <option value="upload-checkin">Upload / Check-in only</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="explorerSignalFilterSelect">Leading signal</label>
+                        <select id="explorerSignalFilterSelect">
+                            <option value="all">All signals</option>
+                            <option value="Failed">Failed</option>
+                            <option value="Unauthorized">Unauthorized</option>
+                            <option value="Archived">Archived</option>
+                            <option value="Retrying">Retrying</option>
+                            <option value="Throttled">Throttled</option>
+                            <option value="Locked">Locked</option>
+                            <option value="Version Changed">Version Changed</option>
+                            <option value="Skipped">Skipped</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Informational">Informational</option>
+                            <option value="Warning">Warning</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="explorerErrorsFilterSelect">Errors</label>
+                        <select id="explorerErrorsFilterSelect">
+                            <option value="all">All error states</option>
+                            <option value="has-errors">Has errors</option>
+                            <option value="no-errors">No errors</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-wrap" id="tableWrap"></div>
+                <div class="results-controls">
+                    <div class="results-summary" id="pageSummary">No rows available.</div>
+                    <div class="pagination-controls">
+                        <label class="inline-field" for="pageSizeSelect">
+                            Rows
+                            <select id="pageSizeSelect">
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="250">250</option>
+                                <option value="500">500</option>
+                            </select>
+                        </label>
+                        <button class="button secondary" id="prevPageButton" type="button">Previous</button>
+                        <span class="page-indicator" id="pageIndicator">Page 0 of 0</span>
+                        <button class="button secondary" id="nextPageButton" type="button">Next</button>
+                    </div>
+                </div>
+            </article>
+        </section>
+
+        <div class="footer">
+            Built for Update-DocxQuickParts.ps1 logs. Rendered locally in the browser.
+        </div>
+    </div>
+
+    <script>
+        const sampleLog = `2026-04-08 08:10:02 [WARN] [https://epiroc.sharepoint.com/sites/ADSIMS] Skipping web 'https://epiroc.sharepoint.com/sites/ADSIMS/Quality' because the current connection does not have access: Access denied.
+2026-04-08 08:10:07 [WARN] [https://epiroc.sharepoint.com/sites/ADSIMS/Shared Documents/Manual.docx] Upload with metadata failed (A required field is missing) — retrying without metadata
+2026-04-08 08:10:18 [WARN] [https://epiroc.sharepoint.com/sites/ADSIMS] Enumerate child webs under 'https://epiroc.sharepoint.com/sites/ADSIMS' hit SharePoint throttling on attempt 2 of 5. Retrying in 6000ms. 429 Too Many Requests
+2026-04-08 08:10:32 [ERROR] [https://epiroc.sharepoint.com/sites/ADSIMS/Shared Documents/Manual.docx] Upload/checkin failed - The file is locked for shared use by another user.
+2026-04-08 08:11:03 [WARN] [https://epiroc.sharepoint.com/sites/ADSIMS/Shared Documents/Procedure.docx] Version changed from 3.0 to 3.1
+2026-04-08 08:11:27 [ERROR] [https://epiroc.sharepoint.com/sites/ADSIMS] Failed to enumerate libraries for 'https://epiroc.sharepoint.com/sites/ADSIMS': The attempted operation is prohibited because it exceeds the list view threshold.
+2026-04-08 08:12:01 [WARN] [https://epiroc.sharepoint.com/sites/ADSIMS/Shared Documents] Could not load library fields for 'Shared Documents' in 'https://epiroc.sharepoint.com/sites/ADSIMS': The remote server returned an error: (503) Server Unavailable.
+2026-04-08 08:12:22 [ERROR] [https://epiroc.sharepoint.com/sites/ADSIMS/Shared Documents/WorkInstruction.docx] Fallback checkin failed - Server too busy.
+2026-04-08 08:12:44 [WARN] [https://epiroc.sharepoint.com/sites/ADSIMS/Shared Documents/Archive.docx] Skipping (Archived): /sites/ADSIMS/Shared Documents/Archive.docx
+2026-04-08 08:13:08 [ERROR] [https://epiroc.sharepoint.com/sites/ADSIMS] Failed to inventory site collection 'https://epiroc.sharepoint.com/sites/ADSIMS': Unauthorized`;
+
+        const elements = {
+            fileInput: document.getElementById('logFileInput'),
+            browseButton: document.getElementById('browseButton'),
+            loadSampleButton: document.getElementById('loadSampleButton'),
+            exportButton: document.getElementById('exportButton'),
+            exportFailedButton: document.getElementById('exportFailedButton'),
+            fileStatus: document.getElementById('fileStatus'),
+            dropzone: document.getElementById('dropzone'),
+            searchInput: document.getElementById('searchInput'),
+            levelFilter: document.getElementById('levelFilter'),
+            statusFilter: document.getElementById('statusFilter'),
+            categoryFilter: document.getElementById('categoryFilter'),
+            contextFilter: document.getElementById('contextFilter'),
+            sortFilter: document.getElementById('sortFilter'),
+            visibleCount: document.getElementById('visibleCount'),
+            warningCount: document.getElementById('warningCount'),
+            errorCount: document.getElementById('errorCount'),
+            contextCount: document.getElementById('contextCount'),
+            throttleCount: document.getElementById('throttleCount'),
+            failedStatusCount: document.getElementById('failedStatusCount'),
+            archivedStatusCount: document.getElementById('archivedStatusCount'),
+            unauthorizedStatusCount: document.getElementById('unauthorizedStatusCount'),
+            retryStatusCount: document.getElementById('retryStatusCount'),
+            resultsMeta: document.getElementById('resultsMeta'),
+            tableWrap: document.getElementById('tableWrap'),
+            insightsPanel: document.getElementById('insightsPanel'),
+            pageSummary: document.getElementById('pageSummary'),
+            pageSizeSelect: document.getElementById('pageSizeSelect'),
+            prevPageButton: document.getElementById('prevPageButton'),
+            nextPageButton: document.getElementById('nextPageButton'),
+            pageIndicator: document.getElementById('pageIndicator'),
+            explorerModeSelect: document.getElementById('explorerModeSelect'),
+            explorerSearchInput: document.getElementById('explorerSearchInput'),
+            explorerFilterSelect: document.getElementById('explorerFilterSelect'),
+            explorerSignalFilterSelect: document.getElementById('explorerSignalFilterSelect'),
+            explorerErrorsFilterSelect: document.getElementById('explorerErrorsFilterSelect')
+        };
+
+        const chartColors = {
+            warn: '#8a6e00',
+            error: '#d13438',
+            accent: '#0f6cbd',
+            accentSoft: '#deecf9',
+            context: '#115ea3',
+            muted: '#605e5c',
+            ink: '#201f1e'
+        };
+
+        const state = {
+            allEvents: [],
+            filteredEvents: [],
+            currentPage: 1,
+            pageSize: 50,
+            explorerSearchDebounceHandle: null
+        };
+
+        const statusPriority = [
+            'Archived',
+            'Unauthorized',
+            'Locked',
+            'Throttled',
+            'Retrying',
+            'Version Changed',
+            'Failed',
+            'Skipped',
+            'Completed',
+            'Informational',
+            'Warning'
+        ];
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function slugify(input) {
+            return String(input || 'unknown')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '') || 'unknown';
+        }
+
+        function deriveContextMeta(context) {
+            const raw = String(context || '').trim();
+            if (!raw) {
+                return {
+                    site: 'No context',
+                    library: 'No library',
+                    file: 'No file'
+                };
+            }
+
+            let origin = '';
+            let pathText = raw;
+
+            try {
+                const parsed = new URL(raw);
+                origin = parsed.origin;
+                pathText = decodeURIComponent(parsed.pathname || '/');
+            } catch {
+                pathText = raw.replace(/^https?:\/\/[^/]+/i, '');
+            }
+
+            const pathParts = pathText.split('/').filter(Boolean).map(part => decodeURIComponent(part));
+            let siteParts = [];
+            let library = '';
+            let file = '';
+
+            if (pathParts[0] === 'sites' || pathParts[0] === 'teams') {
+                siteParts = pathParts.slice(0, Math.min(2, pathParts.length));
+                if (pathParts.length > 2) library = pathParts[2];
+                if (pathParts.length > 3) file = pathParts.slice(3).join('/');
+            } else {
+                siteParts = pathParts.slice(0, Math.min(1, pathParts.length));
+                if (pathParts.length > 1) library = pathParts[1];
+                if (pathParts.length > 2) file = pathParts.slice(2).join('/');
+            }
+
+            const lastPart = pathParts.length ? pathParts[pathParts.length - 1] : '';
+            if (!file && lastPart.includes('.')) {
+                file = lastPart;
+            }
+
+            const site = siteParts.length
+                ? (origin ? `${origin}/${siteParts.join('/')}` : `/${siteParts.join('/')}`)
+                : (origin || raw);
+
+            return {
+                site: site || raw,
+                library: library || 'No library',
+                file: file || raw
+            };
+        }
+
+        function deriveStatusTags(message, level, category) {
+            const text = String(message || '').toLowerCase();
+            const statusTags = new Set();
+
+            if (text.includes('archived')) statusTags.add('Archived');
+            if (/(unauthorized|access denied|forbidden|does not have access)/.test(text)) statusTags.add('Unauthorized');
+            if (/(locked|shared use|still checked out|checked out)/.test(text)) statusTags.add('Locked');
+            if (/(throttl|429|too many requests|server too busy|rate limit)/.test(text) || category === 'Throttling') statusTags.add('Throttled');
+            if (/(retrying|retry\b|attempt \d+ of \d+)/.test(text)) statusTags.add('Retrying');
+            if (/version changed/.test(text)) statusTags.add('Version Changed');
+            if (/(skipping|\bskip\b)/.test(text)) statusTags.add('Skipped');
+            if (/(failed|could not|unable to|hit .* threshold|prohibited|server unavailable)/.test(text) || level === 'ERROR') statusTags.add('Failed');
+            if (level === 'SUCCESS') statusTags.add('Completed');
+            if (level === 'INFO') statusTags.add('Informational');
+            if (level === 'WARN' && !statusTags.size) statusTags.add('Warning');
+            if (!statusTags.size) statusTags.add(level === 'ERROR' ? 'Failed' : 'Informational');
+
+            return [...statusTags].sort((left, right) => statusPriority.indexOf(left) - statusPriority.indexOf(right));
+        }
+
+        function getPrimaryStatus(statusTags) {
+            return statusTags[0] || 'Informational';
+        }
+
+        function parseTagList(value) {
+            if (!value) {
+                return [];
+            }
+
+            return String(value)
+                .split(/[;,]/)
+                .map(part => part.trim())
+                .filter(Boolean);
+        }
+
+        function createEventRecord({ timestampText, level, context = '', message, categoryOverride = '', statusOverride = '', tagsOverride = [] }, index) {
+            const normalizedLevel = String(level || '').trim().toUpperCase();
+            const normalizedTimestampText = String(timestampText || '').trim();
+            const normalizedMessage = String(message || '').trim();
+
+            if (!normalizedTimestampText || !normalizedMessage || !['INFO', 'WARN', 'ERROR', 'SUCCESS'].includes(normalizedLevel)) {
+                return null;
+            }
+
+            const timestamp = new Date(normalizedTimestampText.replace(' ', 'T'));
+            const normalizedContext = String(context || '').trim();
+            const contextMeta = deriveContextMeta(normalizedContext);
+            const category = String(categoryOverride || '').trim() || categorizeMessage(normalizedMessage);
+            const statusTags = new Set(deriveStatusTags(normalizedMessage, normalizedLevel, category));
+
+            for (const tag of parseTagList(statusOverride)) {
+                statusTags.add(tag);
+            }
+
+            const resolvedStatusTags = [...statusTags].sort((left, right) => statusPriority.indexOf(left) - statusPriority.indexOf(right));
+            const extraTags = Array.isArray(tagsOverride) ? tagsOverride : parseTagList(tagsOverride);
+            const tags = createTags(normalizedMessage, normalizedContext, category, normalizedLevel, resolvedStatusTags, extraTags);
+
+            return {
+                id: `${normalizedTimestampText}-${index}`,
+                timestampText: normalizedTimestampText,
+                timestamp,
+                level: normalizedLevel,
+                context: normalizedContext,
+                message: normalizedMessage,
+                category,
+                siteLabel: contextMeta.site,
+                libraryLabel: contextMeta.library,
+                fileLabel: contextMeta.file,
+                primaryStatus: getPrimaryStatus(resolvedStatusTags),
+                statusTags: resolvedStatusTags,
+                tags,
+                searchText: `${normalizedTimestampText} ${normalizedLevel} ${normalizedContext} ${category} ${resolvedStatusTags.join(' ')} ${normalizedMessage} ${tags.join(' ')}`.toLowerCase()
+            };
+        }
+
+        function parseLogLine(line, index) {
+            const match = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(INFO|WARN|ERROR|SUCCESS)\](?: \[(.*?)\])? (.*)$/);
+            if (!match) {
+                return null;
+            }
+
+            const [, timestampText, level, contextRaw = '', message] = match;
+            return createEventRecord({ timestampText, level, context: contextRaw, message }, index);
+        }
+
+        function categorizeMessage(message) {
+            const text = message.toLowerCase();
+
+            if (/(throttl|429|too many requests|retrying in|server too busy|rate limit)/.test(text)) return 'Throttling';
+            if (/(unauthorized|access denied|does not have access|forbidden)/.test(text)) return 'Authorization';
+            if (/(upload|checkin|checked out|fallback checkin|undocheckout|file is still checked out)/.test(text)) return 'Upload / Check-in';
+            if (/(library fields|field source|tracking .* field|required field)/.test(text)) return 'Field Metadata';
+            if (/(version|major version|minor version|versioning)/.test(text)) return 'Versioning';
+            if (/(inventory|enumerate|list view threshold|site collection|visible document librar|child web)/.test(text)) return 'Discovery';
+            if (/(archived|created)/.test(text)) return 'Skip Rule';
+            if (/(locked|shared use)/.test(text)) return 'File Lock';
+            return 'Other';
+        }
+
+        function createTags(message, context, category, level, statusTags = [], extraTags = []) {
+            const tags = new Set([category, level, ...statusTags, ...extraTags]);
+            const text = `${message} ${context}`.toLowerCase();
+            if (text.includes('throttl') || text.includes('429')) tags.add('Throttle');
+            if (text.includes('unauthorized') || text.includes('access denied')) tags.add('Unauthorized');
+            if (text.includes('.docx')) tags.add('Docx');
+            if (text.includes('site')) tags.add('Site');
+            if (text.includes('library')) tags.add('Library');
+            return [...tags];
+        }
+
+        function parseCsvRows(text) {
+            const rows = [];
+            let currentRow = [];
+            let currentCell = '';
+            let inQuotes = false;
+
+            for (let index = 0; index < text.length; index += 1) {
+                const char = text[index];
+                const next = text[index + 1];
+
+                if (char === '"') {
+                    if (inQuotes && next === '"') {
+                        currentCell += '"';
+                        index += 1;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                    continue;
+                }
+
+                if (char === ',' && !inQuotes) {
+                    currentRow.push(currentCell);
+                    currentCell = '';
+                    continue;
+                }
+
+                if ((char === '\n' || char === '\r') && !inQuotes) {
+                    if (char === '\r' && next === '\n') {
+                        index += 1;
+                    }
+                    currentRow.push(currentCell);
+                    rows.push(currentRow);
+                    currentRow = [];
+                    currentCell = '';
+                    continue;
+                }
+
+                currentCell += char;
+            }
+
+            if (currentCell.length > 0 || currentRow.length > 0) {
+                currentRow.push(currentCell);
+                rows.push(currentRow);
+            }
+
+            return rows.filter(row => row.some(cell => String(cell).trim() !== ''));
+        }
+
+        function parseCsvText(text) {
+            const rows = parseCsvRows(text);
+            if (rows.length < 2) {
+                return [];
+            }
+
+            const headers = rows[0].map(header => String(header).trim());
+            const headerIndex = new Map(headers.map((header, index) => [header.toLowerCase(), index]));
+
+            function getCell(row, names) {
+                for (const name of names) {
+                    const index = headerIndex.get(name);
+                    if (index !== undefined) {
+                        return row[index] ?? '';
+                    }
+                }
+                return '';
+            }
+
+            return rows
+                .slice(1)
+                .map((row, index) => createEventRecord({
+                    timestampText: getCell(row, ['timestamp', 'time', 'datetime', 'date']),
+                    level: getCell(row, ['level', 'severity']),
+                    context: getCell(row, ['context', 'url', 'path', 'fileref', 'file ref']),
+                    message: getCell(row, ['message', 'details', 'description']),
+                    categoryOverride: getCell(row, ['category']),
+                    statusOverride: getCell(row, ['status']),
+                    tagsOverride: parseTagList(getCell(row, ['tags']))
+                }, index))
+                .filter(Boolean);
+        }
+
+        function parseLogText(text) {
+            return text
+                .split(/\r?\n/)
+                .map((line, index) => parseLogLine(line.trim(), index))
+                .filter(Boolean);
+        }
+
+        function formatNumber(value) {
+            return new Intl.NumberFormat().format(value);
+        }
+
+        function formatDate(value) {
+            if (!(value instanceof Date) || Number.isNaN(value.valueOf())) {
+                return 'Unknown';
+            }
+            return value.toLocaleString();
+        }
+
+        function updateSelectOptions(selectElement, values, allLabel) {
+            const currentValue = selectElement.value;
+            selectElement.innerHTML = `<option value="all">${allLabel}</option>` + values
+                .map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+                .join('');
+
+            if (values.includes(currentValue)) {
+                selectElement.value = currentValue;
+            }
+        }
+
+        function applyFilters(options = {}) {
+            const { resetPage = true } = options;
+            const query = elements.searchInput.value.trim().toLowerCase();
+            const level = elements.levelFilter.value;
+            const status = elements.statusFilter.value;
+            const category = elements.categoryFilter.value;
+            const context = elements.contextFilter.value;
+            const sort = elements.sortFilter.value;
+
+            let events = state.allEvents.filter(event => {
+                if (level !== 'all' && event.level !== level) return false;
+                if (status !== 'all' && !event.statusTags.includes(status)) return false;
+                if (category !== 'all' && event.category !== category) return false;
+                if (context !== 'all' && event.context !== context) return false;
+                if (query && !event.searchText.includes(query)) return false;
+                return true;
+            });
+
+            events = sortEvents(events, sort);
+            state.filteredEvents = events;
+            const totalPages = Math.max(1, Math.ceil(events.length / state.pageSize));
+            state.currentPage = resetPage ? 1 : Math.min(state.currentPage, totalPages);
+            render();
+        }
+
+        function sortEvents(events, sort) {
+            const list = [...events];
+            switch (sort) {
+                case 'oldest':
+                    return list.sort((a, b) => a.timestamp - b.timestamp);
+                case 'severity':
+                    return list.sort((a, b) => severityWeight(b.level) - severityWeight(a.level) || b.timestamp - a.timestamp);
+                case 'context':
+                    return list.sort((a, b) => (a.context || '').localeCompare(b.context || '') || b.timestamp - a.timestamp);
+                case 'newest':
+                default:
+                    return list.sort((a, b) => b.timestamp - a.timestamp);
+            }
+        }
+
+        function severityWeight(level) {
+            return level === 'ERROR' ? 2 : 1;
+        }
+
+        function getCounts(events, keySelector) {
+            const counts = new Map();
+            for (const event of events) {
+                const key = keySelector(event);
+                counts.set(key, (counts.get(key) || 0) + 1);
+            }
+            return counts;
+        }
+
+        function getTimelinePoints(events) {
+            const buckets = new Map();
+            for (const event of events) {
+                const stamp = event.timestampText.slice(0, 16);
+                if (!buckets.has(stamp)) {
+                    buckets.set(stamp, { label: stamp, warn: 0, error: 0 });
+                }
+                const bucket = buckets.get(stamp);
+                if (event.level === 'ERROR') bucket.error += 1;
+                else bucket.warn += 1;
+            }
+            return [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label));
+        }
+
+        function renderStats() {
+            const events = state.filteredEvents;
+            const warningCount = events.filter(event => event.level === 'WARN').length;
+            const errorCount = events.filter(event => event.level === 'ERROR').length;
+            const throttleCount = events.filter(event => event.category === 'Throttling').length;
+            const contextCount = new Set(events.map(event => event.context).filter(Boolean)).size;
+            const failedCount = events.filter(event => event.statusTags.includes('Failed')).length;
+            const archivedCount = events.filter(event => event.statusTags.includes('Archived')).length;
+            const unauthorizedCount = events.filter(event => event.statusTags.includes('Unauthorized')).length;
+            const retryCount = events.filter(event => event.statusTags.includes('Retrying')).length;
+
+            elements.visibleCount.textContent = formatNumber(events.length);
+            elements.warningCount.textContent = formatNumber(warningCount);
+            elements.errorCount.textContent = formatNumber(errorCount);
+            elements.contextCount.textContent = formatNumber(contextCount);
+            elements.throttleCount.textContent = formatNumber(throttleCount);
+            elements.failedStatusCount.textContent = formatNumber(failedCount);
+            elements.archivedStatusCount.textContent = formatNumber(archivedCount);
+            elements.unauthorizedStatusCount.textContent = formatNumber(unauthorizedCount);
+            elements.retryStatusCount.textContent = formatNumber(retryCount);
+        }
+
+        function renderInsights() {
+            const events = state.filteredEvents;
+            const insights = [];
+
+            if (!events.length) {
+                elements.insightsPanel.innerHTML = `<div class="insight-item"><strong>No visible events</strong><span>Load a log or widen the current filters.</span></div>`;
+                return;
+            }
+
+            const categoryCounts = [...getCounts(events, event => event.category).entries()].sort((a, b) => b[1] - a[1]);
+            const contextCounts = [...getCounts(events, event => event.context || 'No context').entries()].sort((a, b) => b[1] - a[1]);
+            const errorRatio = Math.round((events.filter(event => event.level === 'ERROR').length / events.length) * 100);
+            const throttleEvents = events.filter(event => event.category === 'Throttling').length;
+
+            insights.push({
+                title: 'Primary failure shape',
+                body: `${categoryCounts[0][0]} is the dominant category with ${categoryCounts[0][1]} event${categoryCounts[0][1] === 1 ? '' : 's'}.`
+            });
+            insights.push({
+                title: 'Most affected context',
+                body: `${contextCounts[0][0]} generated ${contextCounts[0][1]} visible event${contextCounts[0][1] === 1 ? '' : 's'}.`
+            });
+            insights.push({
+                title: 'Severity profile',
+                body: `${errorRatio}% of the filtered events are errors; the rest are warnings.`
+            });
+            if (throttleEvents > 0) {
+                insights.push({
+                    title: 'Throttle signal detected',
+                    body: `${throttleEvents} event${throttleEvents === 1 ? '' : 's'} indicate throttling or retry/backoff behavior.`
+                });
+            }
+
+            elements.insightsPanel.innerHTML = insights.map(insight => `
+                <div class="insight-item">
+                    <strong>${escapeHtml(insight.title)}</strong>
+                    <span>${escapeHtml(insight.body)}</span>
+                </div>
+            `).join('');
+        }
+
+        function getExplorerSource() {
+            const mode = elements.explorerModeSelect.value;
+            const explorerQuery = (elements.explorerSearchInput?.value || '').trim().toLowerCase();
+            const explorerFilter = elements.explorerFilterSelect?.value || 'all';
+            const explorerSignal = elements.explorerSignalFilterSelect?.value || 'all';
+            const explorerErrors = elements.explorerErrorsFilterSelect?.value || 'all';
+            if (mode === 'event') {
+                const rows = state.filteredEvents.filter(event => matchesExplorerFilters({
+                    level: event.level,
+                    primaryStatus: event.primaryStatus,
+                    statuses: event.statusTags,
+                    topCategory: event.category,
+                    searchText: [event.timestampText, event.level, event.primaryStatus, event.category, event.context, event.message].filter(Boolean).join(' ').toLowerCase()
+                }, explorerFilter, explorerQuery, explorerSignal, explorerErrors));
+                return {
+                    mode,
+                    rows,
+                    label: 'events'
+                };
+            }
+
+            const groups = new Map();
+            for (const event of state.filteredEvents) {
+                const groupName = mode === 'site'
+                    ? event.siteLabel
+                    : mode === 'library'
+                        ? event.libraryLabel
+                        : event.fileLabel;
+                const scopeLabel = mode === 'site'
+                    ? event.siteLabel
+                    : mode === 'library'
+                        ? event.siteLabel
+                        : `${event.siteLabel} / ${event.libraryLabel}`;
+                const key = mode === 'site'
+                    ? event.siteLabel
+                    : mode === 'library'
+                        ? `${event.siteLabel}|${event.libraryLabel}`
+                        : `${event.siteLabel}|${event.libraryLabel}|${event.fileLabel}`;
+
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        key,
+                        name: groupName,
+                        scope: scopeLabel,
+                        count: 0,
+                        errorCount: 0,
+                        warningCount: 0,
+                        firstTimestamp: event.timestamp,
+                        lastTimestamp: event.timestamp,
+                        lastTimestampText: event.timestampText,
+                        statusCounts: new Map(),
+                        categoryCounts: new Map(),
+                        sampleMessage: event.message,
+                        sampleContext: event.context,
+                        children: new Set()
+                    });
+                }
+
+                const group = groups.get(key);
+                group.count += 1;
+                if (event.level === 'ERROR') group.errorCount += 1;
+                if (event.level === 'WARN') group.warningCount += 1;
+                if (event.timestamp < group.firstTimestamp) group.firstTimestamp = event.timestamp;
+                if (event.timestamp >= group.lastTimestamp) {
+                    group.lastTimestamp = event.timestamp;
+                    group.lastTimestampText = event.timestampText;
+                    group.sampleMessage = event.message;
+                    group.sampleContext = event.context;
+                }
+
+                for (const status of event.statusTags) {
+                    group.statusCounts.set(status, (group.statusCounts.get(status) || 0) + 1);
+                }
+                group.categoryCounts.set(event.category, (group.categoryCounts.get(event.category) || 0) + 1);
+
+                if (mode === 'site') {
+                    group.children.add(event.libraryLabel);
+                } else if (mode === 'library') {
+                    group.children.add(event.fileLabel);
+                }
+            }
+
+            const rows = [...groups.values()].map(group => {
+                const topStatus = [...group.statusCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || 'Informational';
+                const topCategory = [...group.categoryCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || 'Other';
+                return {
+                    ...group,
+                    childCount: group.children.size,
+                    topStatus,
+                    topCategory,
+                    statuses: [...group.statusCounts.keys()].slice(0, 3),
+                    searchText: [group.name, group.scope, group.sampleMessage, group.sampleContext, topStatus, topCategory, ...group.statusCounts.keys()].filter(Boolean).join(' ').toLowerCase()
+                };
+            });
+
+            const filteredRows = rows.filter(row => matchesExplorerFilters({
+                errorCount: row.errorCount,
+                warningCount: row.warningCount,
+                topStatus: row.topStatus,
+                statuses: row.statuses,
+                topCategory: row.topCategory,
+                searchText: row.searchText
+            }, explorerFilter, explorerQuery, explorerSignal, explorerErrors));
+
+            const sortedRows = filteredRows.sort((left, right) => {
+                switch (elements.sortFilter.value) {
+                    case 'oldest':
+                        return left.firstTimestamp - right.firstTimestamp;
+                    case 'severity':
+                        return right.errorCount - left.errorCount || right.count - left.count || right.lastTimestamp - left.lastTimestamp;
+                    case 'context':
+                        return left.name.localeCompare(right.name) || right.count - left.count;
+                    case 'newest':
+                    default:
+                        return right.lastTimestamp - left.lastTimestamp || right.count - left.count;
+                }
+            });
+
+            return {
+                mode,
+                rows: sortedRows,
+                label: mode === 'file' ? 'file groups' : mode === 'library' ? 'library groups' : 'site groups'
+            };
+        }
+
+        function matchesExplorerFilters(row, explorerFilter, explorerQuery, explorerSignal, explorerErrors) {
+            if (explorerQuery && !(row.searchText || '').includes(explorerQuery)) {
+                return false;
+            }
+
+            if (explorerSignal !== 'all') {
+                const signal = row.topStatus || row.primaryStatus || '';
+                if (signal !== explorerSignal) {
+                    return false;
+                }
+            }
+
+            if (explorerErrors === 'has-errors') {
+                const hasErrors = (row.errorCount || 0) > 0 || row.level === 'ERROR';
+                if (!hasErrors) {
+                    return false;
+                }
+            }
+
+            if (explorerErrors === 'no-errors') {
+                const hasErrors = (row.errorCount || 0) > 0 || row.level === 'ERROR';
+                if (hasErrors) {
+                    return false;
+                }
+            }
+
+            switch (explorerFilter) {
+                case 'errors':
+                    return (row.errorCount || 0) > 0 || row.level === 'ERROR';
+                case 'warnings':
+                    return (row.warningCount || 0) > 0 || row.level === 'WARN';
+                case 'failed':
+                    return (row.statuses || []).includes('Failed');
+                case 'unauthorized':
+                    return (row.statuses || []).includes('Unauthorized');
+                case 'archived':
+                    return (row.statuses || []).includes('Archived');
+                case 'upload-checkin':
+                    return row.topCategory === 'Upload / Check-in';
+                default:
+                    return true;
+            }
+        }
+
+        function getPaginationState(items) {
+            const totalItems = items.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / state.pageSize));
+            const currentPage = Math.min(state.currentPage, totalPages);
+            const startIndex = totalItems ? (currentPage - 1) * state.pageSize : 0;
+            const endIndex = Math.min(startIndex + state.pageSize, totalItems);
+
+            return {
+                totalItems,
+                totalPages,
+                currentPage,
+                startIndex,
+                endIndex,
+                pageItems: items.slice(startIndex, endIndex)
+            };
+        }
+
+        function getBadgeClass(level) {
+            if (level === 'ERROR') return 'error';
+            if (level === 'WARN') return 'warn';
+            if (level === 'SUCCESS') return 'success';
+            return 'info';
+        }
+
+        function updatePaginationControls(pagination) {
+            const { totalItems, totalPages, currentPage, startIndex, endIndex } = pagination;
+
+            if (!totalItems) {
+                elements.pageSummary.textContent = 'No rows available for the current filters.';
+                elements.pageIndicator.textContent = 'Page 0 of 0';
+                elements.prevPageButton.disabled = true;
+                elements.nextPageButton.disabled = true;
+            } else {
+                elements.pageSummary.textContent = `Showing ${formatNumber(startIndex + 1)}-${formatNumber(endIndex)} of ${formatNumber(totalItems)} filtered rows.`;
+                elements.pageIndicator.textContent = `Page ${formatNumber(currentPage)} of ${formatNumber(totalPages)}`;
+                elements.prevPageButton.disabled = currentPage <= 1;
+                elements.nextPageButton.disabled = currentPage >= totalPages;
+            }
+
+            const visibleExportCount = state.filteredEvents.length;
+            const failedExportCount = state.allEvents.filter(event => event.statusTags.includes('Failed')).length;
+            elements.exportButton.disabled = visibleExportCount === 0;
+            elements.exportFailedButton.disabled = failedExportCount === 0;
+        }
+
+        function renderTable() {
+            const explorerSource = getExplorerSource();
+            const pagination = getPaginationState(explorerSource.rows);
+            const { pageItems, totalItems, currentPage, totalPages } = pagination;
+
+            updatePaginationControls(pagination);
+
+            if (!totalItems) {
+                elements.tableWrap.innerHTML = `
+                    <div class="empty-state">
+                        <strong>No matching log lines</strong>
+                        Adjust the filters or load a different log file.
+                    </div>
+                `;
+                elements.resultsMeta.textContent = '0 events visible.';
+                return;
+            }
+
+            if (explorerSource.mode === 'event') {
+                const rows = pageItems.map(event => {
+                    const badgeClass = getBadgeClass(event.level);
+                    return `
+                        <tr>
+                            <td>${escapeHtml(formatDate(event.timestamp))}</td>
+                            <td><span class="badge ${badgeClass}">${escapeHtml(event.level)}</span></td>
+                            <td><span class="badge neutral">${escapeHtml(event.primaryStatus)}</span></td>
+                            <td>
+                                <span class="badge category">${escapeHtml(event.category)}</span>
+                                ${event.statusTags.filter(tag => tag !== event.primaryStatus).slice(0, 2).map(tag => `<span class="badge category">${escapeHtml(tag)}</span>`).join('')}
+                            </td>
+                            <td><div class="context">${escapeHtml(event.context || 'No context')}</div></td>
+                            <td><div class="message">${escapeHtml(event.message)}</div></td>
+                        </tr>
+                    `;
+                }).join('');
+
+                elements.tableWrap.innerHTML = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Level</th>
+                                <th>Status</th>
+                                <th>Category</th>
+                                <th>Context</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `;
+            } else {
+                const rows = pageItems.map(row => `
+                    <tr>
+                        <td>
+                            <div>${escapeHtml(row.name)}</div>
+                            <div class="context">${escapeHtml(row.scope)}</div>
+                        </td>
+                        <td>${formatNumber(row.count)}</td>
+                        <td>${formatNumber(row.errorCount)}</td>
+                        <td>${escapeHtml(formatDate(row.lastTimestamp))}</td>
+                        <td>
+                            <span class="badge neutral">${escapeHtml(row.topStatus)}</span>
+                            <span class="badge category">${escapeHtml(row.topCategory)}</span>
+                        </td>
+                        <td>
+                            <div class="message">${escapeHtml(row.sampleMessage)}</div>
+                            <div class="context">${row.childCount ? `${formatNumber(row.childCount)} related item${row.childCount === 1 ? '' : 's'}` : escapeHtml(row.sampleContext || 'No context')}</div>
+                        </td>
+                    </tr>
+                `).join('');
+
+                elements.tableWrap.innerHTML = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>${explorerSource.mode === 'file' ? 'File' : explorerSource.mode === 'library' ? 'Library' : 'Site'}</th>
+                                <th>Events</th>
+                                <th>Errors</th>
+                                <th>Latest</th>
+                                <th>Leading Signal</th>
+                                <th>Recent Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `;
+            }
+
+            elements.resultsMeta.textContent = `${formatNumber(totalItems)} ${escapeHtml(explorerSource.label)} from ${formatNumber(state.filteredEvents.length)} filtered events. Showing page ${formatNumber(currentPage)} of ${formatNumber(totalPages)}.`;
+        }
+
+        function drawAxis(ctx, area, maxValue, ySteps) {
+            ctx.strokeStyle = 'rgba(108, 99, 88, 0.12)';
+            ctx.lineWidth = 1;
+            ctx.fillStyle = chartColors.muted;
+            ctx.font = '12px IBM Plex Sans, sans-serif';
+
+            for (let step = 0; step <= ySteps; step += 1) {
+                const ratio = step / ySteps;
+                const y = area.y + area.h - (area.h * ratio);
+                ctx.beginPath();
+                ctx.moveTo(area.x, y);
+                ctx.lineTo(area.x + area.w, y);
+                ctx.stroke();
+                const label = Math.round(maxValue * ratio);
+                ctx.fillText(String(label), 10, y + 4);
+            }
+        }
+
+        function prepareCanvas(canvas) {
+            const parentWidth = canvas.parentElement.clientWidth;
+            const cssHeight = Number(canvas.getAttribute('height')) || 260;
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = Math.floor(parentWidth * dpr);
+            canvas.height = Math.floor(cssHeight * dpr);
+            canvas.style.height = `${cssHeight}px`;
+            canvas.style.width = `${parentWidth}px`;
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, parentWidth, cssHeight);
+            return { ctx, width: parentWidth, height: cssHeight };
+        }
+
+        function drawSeverityChart() {
+            const canvas = document.getElementById('severityChart');
+            const { ctx, width, height } = prepareCanvas(canvas);
+            const warningCount = state.filteredEvents.filter(event => event.level === 'WARN').length;
+            const errorCount = state.filteredEvents.filter(event => event.level === 'ERROR').length;
+            const total = Math.max(warningCount + errorCount, 1);
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(width, height) * 0.28;
+            const lineWidth = Math.min(width, height) * 0.16;
+
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = 'rgba(108,99,88,0.10)';
+            ctx.lineWidth = lineWidth;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            let start = -Math.PI / 2;
+            [[warningCount, chartColors.warn], [errorCount, chartColors.error]].forEach(([value, color]) => {
+                if (!value) return;
+                const angle = (value / total) * Math.PI * 2;
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, start, start + angle);
+                ctx.stroke();
+                start += angle;
+            });
+
+            ctx.fillStyle = chartColors.ink;
+            ctx.textAlign = 'center';
+            ctx.font = '700 30px Avenir Next, Segoe UI, sans-serif';
+            ctx.fillText(String(total), centerX, centerY + 8);
+            ctx.font = '12px IBM Plex Sans, sans-serif';
+            ctx.fillStyle = chartColors.muted;
+            ctx.fillText('visible events', centerX, centerY + 28);
+
+            const legendX = 24;
+            const legendY = height - 48;
+            [['Warnings', warningCount, chartColors.warn], ['Errors', errorCount, chartColors.error]].forEach((item, index) => {
+                const y = legendY + index * 22;
+                ctx.fillStyle = item[2];
+                ctx.fillRect(legendX, y, 12, 12);
+                ctx.fillStyle = chartColors.ink;
+                ctx.font = '13px IBM Plex Sans, sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillText(`${item[0]}: ${item[1]}`, legendX + 20, y + 11);
+            });
+        }
+
+        function simplifyPathLabel(value) {
+            const text = String(value || '').trim();
+            if (!text || text === 'No context') return 'No context';
+
+            return text
+                .replace(/^https?:\/\/[^/]+/i, '')
+                .replace(/\|/g, ' / ')
+                .replace(/\/+/g, '/');
+        }
+
+        function fitText(ctx, text, maxWidth) {
+            const value = String(text || '');
+            if (!value) return '';
+            if (ctx.measureText(value).width <= maxWidth) return value;
+
+            let trimmed = value;
+            while (trimmed.length > 1 && ctx.measureText(`${trimmed}...`).width > maxWidth) {
+                trimmed = trimmed.slice(0, -1);
+            }
+
+            return `${trimmed}...`;
+        }
+
+        function getHotContextItems(events) {
+            const counts = new Map();
+
+            for (const event of events) {
+                let key = 'no-context';
+                let label = 'No context';
+                let sublabel = 'Missing source path';
+
+                if (event.fileLabel && event.fileLabel !== 'No file' && event.fileLabel !== event.context) {
+                    key = `file|${event.siteLabel}|${event.libraryLabel}|${event.fileLabel}`;
+                    label = event.fileLabel;
+                    sublabel = [simplifyPathLabel(event.siteLabel), event.libraryLabel !== 'No library' ? event.libraryLabel : '']
+                        .filter(Boolean)
+                        .join(' / ');
+                } else if (event.libraryLabel && event.libraryLabel !== 'No library') {
+                    key = `library|${event.siteLabel}|${event.libraryLabel}`;
+                    label = event.libraryLabel;
+                    sublabel = simplifyPathLabel(event.siteLabel);
+                } else if (event.siteLabel) {
+                    key = `site|${event.siteLabel}`;
+                    label = simplifyPathLabel(event.siteLabel);
+                    sublabel = event.context && event.context !== event.siteLabel ? simplifyPathLabel(event.context) : 'Site scope';
+                }
+
+                if (!counts.has(key)) {
+                    counts.set(key, { label, sublabel, count: 0 });
+                }
+
+                counts.get(key).count += 1;
+            }
+
+            return [...counts.values()]
+                .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+        }
+
+        function drawBarChart(canvasId, items, color) {
+            const canvas = document.getElementById(canvasId);
+            const { ctx, width, height } = prepareCanvas(canvas);
+            const leftWidth = Math.min(200, Math.max(132, width * 0.42));
+            const visibleItems = items.slice(0, 5);
+            ctx.font = '600 11px Segoe UI, sans-serif';
+            const valueWidth = Math.max(
+                42,
+                ...visibleItems.map(item => Math.ceil(ctx.measureText(String(item.count)).width) + 10)
+            );
+            const rightPadding = 12;
+            const area = { x: leftWidth, y: 16, w: width - leftWidth - valueWidth - rightPadding, h: height - 24 };
+            const maxValue = Math.max(...visibleItems.map(item => item.count), 1);
+
+            if (!visibleItems.length) {
+                ctx.fillStyle = chartColors.muted;
+                ctx.font = '14px IBM Plex Sans, sans-serif';
+                ctx.fillText('No data for this view.', 24, 32);
+                return;
+            }
+
+            visibleItems.forEach((item, index) => {
+                const rowHeight = area.h / visibleItems.length;
+                const rowTop = area.y + index * rowHeight;
+                const labelWidth = Math.max(90, area.x - 18);
+                const labelY = rowTop + 13;
+                const sublabelY = rowTop + 27;
+                const barY = rowTop + Math.max(32, rowHeight - 12);
+                const barHeight = 10;
+                const barWidth = (item.count / maxValue) * area.w;
+
+                ctx.fillStyle = chartColors.ink;
+                ctx.font = '600 12px Segoe UI, sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillText(fitText(ctx, item.label, labelWidth), 12, labelY);
+
+                if (item.sublabel) {
+                    ctx.fillStyle = chartColors.muted;
+                    ctx.font = '11px Segoe UI, sans-serif';
+                    ctx.fillText(fitText(ctx, item.sublabel, labelWidth), 12, sublabelY);
+                }
+
+                ctx.fillStyle = 'rgba(108, 99, 88, 0.08)';
+                ctx.fillRect(area.x, barY, area.w, barHeight);
+                ctx.fillStyle = color;
+                ctx.fillRect(area.x, barY, barWidth, barHeight);
+                ctx.fillStyle = chartColors.ink;
+                ctx.font = '600 11px Segoe UI, sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(String(item.count), area.x + area.w + valueWidth - 4, barY + 9);
+            });
+        }
+
+        function drawTimelineChart() {
+            const canvas = document.getElementById('timelineChart');
+            const { ctx, width, height } = prepareCanvas(canvas);
+            const points = getTimelinePoints(state.filteredEvents);
+            const area = { x: 48, y: 16, w: width - 72, h: height - 56 };
+
+            if (!points.length) {
+                ctx.fillStyle = chartColors.muted;
+                ctx.font = '14px IBM Plex Sans, sans-serif';
+                ctx.fillText('Load a log file to render the event timeline.', 16, 28);
+                return;
+            }
+
+            const maxValue = Math.max(...points.map(point => point.warn + point.error), 1);
+            drawAxis(ctx, area, maxValue, 4);
+
+            const stepX = points.length === 1 ? 0 : area.w / (points.length - 1);
+
+            function drawSeries(key, color) {
+                ctx.beginPath();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                points.forEach((point, index) => {
+                    const x = area.x + index * stepX;
+                    const y = area.y + area.h - ((point[key] || 0) / maxValue) * area.h;
+                    if (index === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                points.forEach((point, index) => {
+                    const x = area.x + index * stepX;
+                    const y = area.y + area.h - ((point[key] || 0) / maxValue) * area.h;
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+
+            drawSeries('warn', chartColors.warn);
+            drawSeries('error', chartColors.error);
+
+            ctx.fillStyle = chartColors.muted;
+            ctx.font = '11px IBM Plex Sans, sans-serif';
+            ctx.textAlign = 'center';
+            points.forEach((point, index) => {
+                if (points.length > 8 && index % Math.ceil(points.length / 8) !== 0 && index !== points.length - 1) {
+                    return;
+                }
+                const x = area.x + index * stepX;
+                ctx.fillText(point.label.slice(11), x, height - 14);
+            });
+        }
+
+        function renderCharts() {
+            drawSeverityChart();
+
+            const topCategories = [...getCounts(state.filteredEvents, event => event.category).entries()]
+                .sort((a, b) => b[1] - a[1])
+                .map(([label, count]) => ({ label, sublabel: `${count} matching events`, count }));
+            drawBarChart('categoryChart', topCategories, chartColors.accent);
+
+            const topContexts = getHotContextItems(state.filteredEvents);
+            drawBarChart('contextChart', topContexts, chartColors.context);
+
+            drawTimelineChart();
+        }
+
+        function render() {
+            renderStats();
+            renderInsights();
+            renderTable();
+            renderCharts();
+        }
+
+        function updateFiltersFromData() {
+            const statuses = [...new Set(state.allEvents.flatMap(event => event.statusTags))]
+                .sort((left, right) => statusPriority.indexOf(left) - statusPriority.indexOf(right));
+            const categories = [...new Set(state.allEvents.map(event => event.category))].sort();
+            const contexts = [...new Set(state.allEvents.map(event => event.context).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+            updateSelectOptions(elements.statusFilter, statuses, 'All statuses');
+            updateSelectOptions(elements.categoryFilter, categories, 'All categories');
+            updateSelectOptions(elements.contextFilter, contexts, 'All contexts');
+        }
+
+        function loadLogText(text, sourceLabel, format = 'log') {
+            const events = format === 'csv' ? parseCsvText(text) : parseLogText(text);
+            state.allEvents = events;
+            state.currentPage = 1;
+            updateFiltersFromData();
+            applyFilters();
+
+            elements.fileStatus.textContent = events.length
+                ? `${sourceLabel} loaded. Parsed ${formatNumber(events.length)} ${format === 'csv' ? 'CSV row' : 'log event'}${events.length === 1 ? '' : 's'}.`
+                : `${sourceLabel} loaded, but no ${format === 'csv' ? 'CSV rows matched the expected columns' : 'log lines matched the expected format'}.`;
+        }
+
+        function downloadCsv(events, filePrefix) {
+            if (!events.length) {
+                return;
+            }
+
+            const rows = [
+                ['Timestamp', 'Level', 'Status', 'Category', 'Context', 'Tags', 'Message'],
+                ...events.map(event => [event.timestampText, event.level, event.primaryStatus, event.category, event.context, event.statusTags.join('; '), event.message])
+            ];
+            const csv = rows.map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${filePrefix}-${Date.now()}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function exportFilteredCsv() {
+            downloadCsv(state.filteredEvents, 'quickparts-log-visible');
+        }
+
+        function exportFailedCsv() {
+            const failedEvents = state.allEvents.filter(event => event.statusTags.includes('Failed'));
+            downloadCsv(failedEvents, 'quickparts-log-failed');
+        }
+
+        async function handleFile(file) {
+            const text = await file.text();
+            const format = file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'log';
+            loadLogText(text, file.name, format);
+        }
+
+        let searchDebounceHandle = 0;
+
+        function scheduleFilterApply() {
+            window.clearTimeout(searchDebounceHandle);
+            searchDebounceHandle = window.setTimeout(() => applyFilters(), 120);
+        }
+
+        elements.browseButton.addEventListener('click', () => elements.fileInput.click());
+        elements.fileInput.addEventListener('change', event => {
+            const [file] = event.target.files || [];
+            if (file) {
+                handleFile(file);
+            }
+        });
+        elements.loadSampleButton.addEventListener('click', () => loadLogText(sampleLog, 'Sample log'));
+        elements.exportButton.addEventListener('click', exportFilteredCsv);
+        elements.exportFailedButton.addEventListener('click', exportFailedCsv);
+        elements.pageSizeSelect.addEventListener('change', event => {
+            state.pageSize = Number(event.target.value) || 100;
+            applyFilters();
+        });
+        elements.explorerModeSelect.addEventListener('change', () => {
+            state.currentPage = 1;
+            renderTable();
+        });
+
+        elements.explorerSearchInput.addEventListener('input', () => {
+            window.clearTimeout(state.explorerSearchDebounceHandle);
+            state.explorerSearchDebounceHandle = window.setTimeout(() => {
+                state.currentPage = 1;
+                renderTable();
+            }, 120);
+        });
+
+        elements.explorerFilterSelect.addEventListener('change', () => {
+            state.currentPage = 1;
+            renderTable();
+        });
+
+        elements.explorerSignalFilterSelect.addEventListener('change', () => {
+            state.currentPage = 1;
+            renderTable();
+        });
+
+        elements.explorerErrorsFilterSelect.addEventListener('change', () => {
+            state.currentPage = 1;
+            renderTable();
+        });
+        elements.prevPageButton.addEventListener('click', () => {
+            if (state.currentPage > 1) {
+                state.currentPage -= 1;
+                renderTable();
+            }
+        });
+        elements.nextPageButton.addEventListener('click', () => {
+            const totalPages = Math.max(1, Math.ceil(getExplorerSource().rows.length / state.pageSize));
+            if (state.currentPage < totalPages) {
+                state.currentPage += 1;
+                renderTable();
+            }
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            elements.dropzone.addEventListener(eventName, event => {
+                event.preventDefault();
+                elements.dropzone.classList.add('is-active');
+            });
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            elements.dropzone.addEventListener(eventName, event => {
+                event.preventDefault();
+                elements.dropzone.classList.remove('is-active');
+            });
+        });
+        elements.dropzone.addEventListener('drop', event => {
+            const [file] = event.dataTransfer.files || [];
+            if (file) {
+                handleFile(file);
+            }
+        });
+
+        [
+            elements.levelFilter,
+            elements.statusFilter,
+            elements.categoryFilter,
+            elements.contextFilter,
+            elements.sortFilter
+        ].forEach(control => control.addEventListener('input', () => applyFilters()));
+        [
+            elements.levelFilter,
+            elements.statusFilter,
+            elements.categoryFilter,
+            elements.contextFilter,
+            elements.sortFilter
+        ].forEach(control => control.addEventListener('change', () => applyFilters()));
+
+        elements.searchInput.addEventListener('input', scheduleFilterApply);
+
+        window.addEventListener('resize', () => renderCharts());
+        elements.pageSizeSelect.value = String(state.pageSize);
+        loadLogText(sampleLog, 'Sample log');
+    </script>
+</body>
+</html>
